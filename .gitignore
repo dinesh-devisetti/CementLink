@@ -13,3 +13,7 @@ test-results/
 *.tsbuildinfo
 .DS_Store
 .claude-flow/
+
+# internal team logs, kept local only
+.team/04-dev-log.md
+.team/05-qa-report.md
