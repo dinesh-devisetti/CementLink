@@ -1,0 +1,26 @@
+@import "tailwindcss";
+
+:root{--bg:#F8F7F4;--surface:#FFF;--text:#1C1917;--muted:#6B655E;--border:#E4E0D8;
+--primary:#C2410C;--primary-fg:#FFF;--success:#15803D;--warning:#B45309;--danger:#B91C1C;--info:#1D4ED8;--focus:#1D4ED8}
+.dark{--bg:#171513;--surface:#211E1B;--text:#F5F2EC;--muted:#A8A198;--border:#3A3631;
+--primary:#FB923C;--primary-fg:#1C1917;--success:#4ADE80;--warning:#FBBF24;--danger:#F87171;--info:#60A5FA;--focus:#93C5FD}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-border: var(--border);
+  --color-primary: var(--primary);
+  --color-primary-fg: var(--primary-fg);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-info: var(--info);
+  --color-focus: var(--focus);
+  --radius-input: 6px;
+  --radius-card: 12px;
+}
+
+body { background: var(--bg); color: var(--text); font-family: Inter, system-ui, sans-serif; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
