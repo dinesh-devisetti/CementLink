@@ -195,7 +195,7 @@ function Row({ link, error, children }: { link: LinkRow; error?: string; childre
             {link.counterpart.businessName}
             <span className="font-normal text-muted">{place(link.counterpart.city)}</span>
           </p>
-          <LinkStatusBadge status={link.status} label={pendingMine ? "Pending - you requested" : undefined} />
+          <LinkStatusBadge status={link.status} revokedBy={link.revokedBy} label={pendingMine ? "Pending - you requested" : undefined} />
         </div>
         {children && <div className="flex gap-2">{children}</div>}
       </div>
@@ -275,13 +275,14 @@ function Directory({ config, act, busy, errors, version }: { config: DirectoryCo
                       {r.businessName}
                       <span className="font-normal text-muted">{place(r.city)}</span>
                     </span>
-                    {canRequest ? (
-                      <Button type="button" disabled={busy === r.id} aria-label={`Request link to ${r.businessName}`} onClick={() => request(r)}>
-                        {r.linkStatus ? "Request again" : "Request link"}
-                      </Button>
-                    ) : (
-                      r.linkStatus && <LinkStatusBadge status={r.linkStatus} />
-                    )}
+                    <div className="flex items-center gap-2">
+                      {r.linkStatus && <LinkStatusBadge status={r.linkStatus} revokedBy={r.linkRevokedBy} />}
+                      {canRequest && (
+                        <Button type="button" disabled={busy === r.id} aria-label={`Request link to ${r.businessName}`} onClick={() => request(r)}>
+                          {r.linkStatus ? "Request again" : "Request link"}
+                        </Button>
+                      )}
+                    </div>
                   </div>
                   <RowError message={errors[r.id]} />
                 </li>

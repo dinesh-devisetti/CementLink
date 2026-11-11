@@ -170,7 +170,7 @@ describe("QA V11 edge cases", () => {
     expect((await linkRow(p.id, d.id))!.kind).toBe("PROVIDER_DISTRIBUTOR");
   });
 
-  it("lower tier does not see upper's REVOKED row but can re-request; upper's rejected row hidden", async () => {
+  it("lower tier does not see upper's REVOKED row and re-requests after the cooldown; upper's rejected row hidden", async () => {
     const p = await mk("PROVIDER", "P9"); const d = await mk("DISTRIBUTOR", "D9");
     await as(admin); await post("force", "/api/admin/links", { upperId: p.id, lowerId: d.id });
     const l = (await linkRow(p.id, d.id))!;
@@ -178,6 +178,9 @@ describe("QA V11 edge cases", () => {
     await as(d);
     const mine = (await (await get("linksGet", "/api/links")).json()).data.filter((r: { id: string }) => r.id === l.id);
     expect(mine).toHaveLength(0);
+    // V12: an upper-tier revoke starts the same 24h cooldown as a rejection
+    expect((await post("links", "/api/links", { targetId: p.id })).status).toBe(429);
+    await db.update(schema.links).set({ updatedAt: Date.now() - 25 * 3600_000 }).where(eq(schema.links.id, l.id));
     expect((await post("links", "/api/links", { targetId: p.id })).status).toBe(201);
     expect((await linkRow(p.id, d.id))!.status).toBe("PENDING");
   });

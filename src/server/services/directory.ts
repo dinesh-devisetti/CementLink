@@ -12,6 +12,8 @@ export interface DirectoryRow {
   city: string | null;
   linkId: string | null;
   linkStatus: LinkStatus | null;
+  /** Who revoked the link; null on a REVOKED link means the requester cancelled it. */
+  linkRevokedBy: string | null;
 }
 
 export interface PartyRow {
@@ -36,8 +38,8 @@ async function directory(
     ? sql`AND (lower(coalesce(t.business_name, '')) LIKE ${q} ESCAPE '\\' OR lower(coalesce(t.city, '')) LIKE ${q} ESCAPE '\\')`
     : sql``;
   const where = sql`t.role = ${targetRole} AND t.status = 'ACTIVE' AND t.id <> ${actor.id} ${search}`;
-  const rows = await db.all<{ id: string; business_name: string | null; city: string | null; link_id: string | null; link_status: LinkStatus | null }>(
-    sql`SELECT t.id AS id, t.business_name AS business_name, t.city AS city, l.id AS link_id, l.status AS link_status
+  const rows = await db.all<{ id: string; business_name: string | null; city: string | null; link_id: string | null; link_status: LinkStatus | null; revoked_by: string | null }>(
+    sql`SELECT t.id AS id, t.business_name AS business_name, t.city AS city, l.id AS link_id, l.status AS link_status, l.revoked_by AS revoked_by
         FROM users t LEFT JOIN links l ON ${join}
         WHERE ${where}
         ORDER BY lower(coalesce(t.business_name, '')), t.id
@@ -52,6 +54,7 @@ async function directory(
       city: r.city,
       linkId: r.link_id,
       linkStatus: r.link_status,
+      linkRevokedBy: r.revoked_by,
     })),
   };
 }

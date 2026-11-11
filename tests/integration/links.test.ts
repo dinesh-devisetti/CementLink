@@ -263,7 +263,7 @@ describe("authorisation and isolation", () => {
     const res = await get("dirP", "/api/directory/providers?q=searchtarget");
     const body = await res.json();
     expect(body.data).toHaveLength(1);
-    expect(Object.keys(body.data[0]).sort()).toEqual(["businessName", "city", "id", "linkId", "linkStatus"]);
+    expect(Object.keys(body.data[0]).sort()).toEqual(["businessName", "city", "id", "linkId", "linkRevokedBy", "linkStatus"]);
     expect(JSON.stringify(body)).not.toMatch(/@x\.com|9876543210|passwordHash/);
     expect(body.data[0].id).toBe(p.id);
     expect((await (await get("dirP", "/api/directory/providers?q=%25")).json()).data).toHaveLength(0);
@@ -664,5 +664,41 @@ describe("cancel pending request", () => {
     await post("revoke", `/api/links/${l.id}/revoke`, undefined, l.id);
     await as(g);
     expect((await (await get("linksGet", "/api/links")).json()).data[0].status).toBe("REVOKED");
+  });
+});
+
+describe("V11 re-check LOWs (V12)", () => {
+  it("upper-party revoke starts the 24h cooldown; lower-party revoke and cancel do not", async () => {
+    const ramu = await mk("CUSTOMER", "RamuC");
+    const giri = await mk("DISTRIBUTOR", "GiriC");
+    await as(admin);
+    await post("force", "/api/admin/links", { upperId: giri.id, lowerId: ramu.id });
+    const l = (await linkRow(giri.id, ramu.id))!;
+    await as(giri);
+    await post("revoke", `/api/links/${l.id}/revoke`, undefined, l.id);
+    await as(ramu);
+    const cool = await post("links", "/api/links", { targetId: giri.id });
+    expect(cool.status).toBe(429);
+    expect((await cool.json()).code).toBe("REQUEST_COOLDOWN");
+    expect((await linkRow(giri.id, ramu.id))?.status).toBe("REVOKED");
+    await db.update(schema.links).set({ updatedAt: Date.now() - 25 * 3600_000 }).where(eq(schema.links.id, l.id));
+    expect((await post("links", "/api/links", { targetId: giri.id })).status).toBe(201);
+  });
+
+  it("cancelled requests (REVOKED, revoked_by NULL) never show to the upper tier; wasActive fragment", async () => {
+    const ramu = await mk("CUSTOMER", "RamuD");
+    const giri = await mk("DISTRIBUTOR", "GiriD");
+    await as(ramu);
+    await post("links", "/api/links", { targetId: giri.id });
+    const l = (await linkRow(giri.id, ramu.id))!;
+    await db.update(schema.links).set({ status: "REVOKED", revokedBy: null }).where(eq(schema.links.id, l.id));
+    await as(giri);
+    expect((await (await get("linksGet", "/api/links")).json()).data).toHaveLength(0);
+    const { sql } = await import("drizzle-orm");
+    const { wasActive } = await import("@/server/db/fragments");
+    const rows = await db.all<{ id: string }>(sql`SELECT l.id FROM links l WHERE l.upper_id = ${giri.id} AND (l.status = 'ACTIVE' OR (l.status = 'REVOKED' AND ${wasActive("l")}))`);
+    expect(rows).toHaveLength(0);
+    await db.update(schema.links).set({ revokedBy: giri.id }).where(eq(schema.links.id, l.id));
+    expect(await db.all(sql`SELECT l.id FROM links l WHERE l.id = ${l.id} AND ${wasActive("l")}`)).toHaveLength(1);
   });
 });

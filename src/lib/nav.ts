@@ -37,6 +37,8 @@ export const ROLE_NAV: Record<NavRole, readonly NavItem[]> = {
 
 /** Tabs whose page is built; every other tab opens the "Coming in a later release" page. */
 export const BUILT_HREFS: ReadonlySet<string> = new Set([
+  "/customer/orders",
+  "/distributor/orders",
   "/customer/distributors",
   "/distributor/providers",
   "/distributor/customers",

@@ -1,10 +1,10 @@
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { demoSeedAllowed } from "../../scripts/env";
-import { assertInsideRoot, assertNotProduction, localDbPath, openAndValidate, resetDb } from "../../scripts/reset-db";
+import { REPO_ROOT, assertInsideRoot, assertNotProduction, localDbPath, openAndValidate, resetDb } from "../../scripts/reset-db";
 import { runSeed, seedDemo } from "../../scripts/seed";
 import { createDb } from "@/server/db/client";
 
@@ -24,6 +24,28 @@ describe("reset-db + v2 seed", () => {
     expect(localDbPath("file:x.db?mode=ro")).toMatch(/\/x\.db$/);
     expect(localDbPath("file:my%20db.db")).toMatch(/\/my db\.db$/);
     expect(localDbPath("file:///tmp/a.db")).toBe("/tmp/a.db");
+  });
+
+  it("default root is the repo directory, not the cwd", () => {
+    expect(REPO_ROOT).toBe(path.resolve(import.meta.dirname, "../.."));
+    expect(() => assertInsideRoot(path.join(REPO_ROOT, "dev.db"), REPO_ROOT)).not.toThrow();
+  });
+
+  it("compares realpaths: a symlink inside the root pointing outside is refused", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "cl-root-"));
+    const outside = mkdtempSync(path.join(tmpdir(), "cl-out-"));
+    try {
+      symlinkSync(outside, path.join(root, "link"));
+      expect(() => assertInsideRoot(path.join(root, "link", "x.db"), root)).toThrow(/inside/);
+      expect(() => assertInsideRoot(path.join(root, "ok.db"), root)).not.toThrow();
+      // a root given through a symlink still matches files realpath-inside it
+      const alias = path.join(outside, "alias");
+      symlinkSync(root, alias);
+      expect(() => assertInsideRoot(path.join(root, "ok.db"), alias)).not.toThrow();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
   });
 
   it("only deletes .db files inside the root directory", async () => {

@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { rmSync } from "node:fs";
+import { realpathSync, rmSync } from "node:fs";
 import { createClient } from "@libsql/client";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,6 +12,9 @@ import { fail, readScriptEnv } from "./env";
  * and empty paths are refused. Query strings (including mode=ro) are ignored here; openAndValidate
  * rejects URLs libsql cannot open before any file is deleted.
  */
+/** Default deletion root: the repo directory (parent of scripts/), not process.cwd(). */
+export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
 export function localDbPath(url: string): string {
   if (!url.startsWith("file:")) throw new Error("reset-db only works on a local file: DATABASE_URL (refusing remote database)");
   const rest = url.slice("file:".length).split(/[?#]/)[0];
@@ -40,15 +43,29 @@ export async function openAndValidate(url: string): Promise<void> {
   }
 }
 
+/** realpath of the longest existing ancestor + the remaining path, so symlinks cannot escape the root compare. */
+function realOrResolved(p: string): string {
+  const abs = path.resolve(p);
+  const tail: string[] = [];
+  for (let cur = abs; ; cur = path.dirname(cur)) {
+    try {
+      return path.join(realpathSync(cur), ...tail);
+    } catch {
+      if (path.dirname(cur) === cur) return abs;
+      tail.unshift(path.basename(cur));
+    }
+  }
+}
+
 /** The file to delete must be a *.db file inside `root` (the repo directory), never an arbitrary path. */
 export function assertInsideRoot(file: string, root: string): void {
-  const rel = path.relative(path.resolve(root), file);
+  const rel = path.relative(realOrResolved(root), realOrResolved(file));
   if (!file.endsWith(".db") || !rel || rel.startsWith("..") || path.isAbsolute(rel)) {
     throw new Error(`reset-db only deletes .db files inside ${path.resolve(root)}`);
   }
 }
 
-export async function resetDb(url: string, email: string, password: string, demoPassword?: string, root: string = process.cwd()): Promise<string> {
+export async function resetDb(url: string, email: string, password: string, demoPassword?: string, root: string = REPO_ROOT): Promise<string> {
   assertNotProduction();
   assertDistinctPasswords(password, demoPassword);
   const file = localDbPath(url);

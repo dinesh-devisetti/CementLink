@@ -3,7 +3,7 @@ import { v7 as uuidv7 } from "uuid";
 import type { Db } from "../db/client";
 import { AppError } from "../errors";
 import type { LinkKind, LinkStatus, User } from "../db/schema";
-import { activeLink } from "../db/fragments";
+import { activeLink, wasActive } from "../db/fragments";
 import { partyLabel } from "./party-label";
 
 /** Hours a lower-tier party must wait before re-requesting a link the upper tier rejected. */
@@ -17,6 +17,8 @@ export interface LinkRow {
   direction: "incoming" | "outgoing";
   /** Which side of the link the caller is. */
   side: "upper" | "lower";
+  /** Who revoked it; null on a REVOKED link means a cancelled request. */
+  revokedBy: string | null;
   counterpart: { id: string; businessName: string; city: string | null };
   createdAt: number;
   updatedAt: number;
@@ -28,6 +30,7 @@ interface RawLink {
   status: LinkStatus;
   upper_id: string;
   requested_by: string;
+  revoked_by: string | null;
   created_at: number;
   updated_at: number;
   c_id: string;
@@ -38,7 +41,7 @@ interface RawLink {
 }
 
 const visible = (actorId: string) => sql`((l.lower_id = ${actorId} AND (l.status = 'ACTIVE' OR (l.status IN ('PENDING','REJECTED') AND l.requested_by = ${actorId})))
-            OR (l.upper_id = ${actorId} AND (l.status IN ('PENDING','ACTIVE') OR (l.status = 'REVOKED' AND l.revoked_by IS NOT NULL))))`;
+            OR (l.upper_id = ${actorId} AND (l.status IN ('PENDING','ACTIVE') OR (l.status = 'REVOKED' AND ${wasActive("l")}))))`;
 
 /**
  * Visibility: a lower-tier caller sees ACTIVE links plus its own PENDING/REJECTED requests (never others').
@@ -54,7 +57,7 @@ export async function listLinks(
 ): Promise<{ rows: LinkRow[]; total: number }> {
   const kind = opts.kind ? sql`AND l.kind = ${opts.kind}` : sql``;
   const rows = await db.all<RawLink>(
-    sql`SELECT l.id, l.kind, l.status, l.upper_id, l.requested_by, l.created_at, l.updated_at,
+    sql`SELECT l.id, l.kind, l.status, l.upper_id, l.requested_by, l.revoked_by, l.created_at, l.updated_at,
                c.id AS c_id, c.role AS c_role, c.name AS c_name, c.business_name AS c_business, c.city AS c_city
         FROM links l
         JOIN users c ON c.id = CASE WHEN l.upper_id = ${actor.id} THEN l.lower_id ELSE l.upper_id END
@@ -71,6 +74,7 @@ export async function listLinks(
       status: r.status,
       direction: r.requested_by === actor.id ? "outgoing" : "incoming",
       side: r.upper_id === actor.id ? "upper" : "lower",
+      revokedBy: r.revoked_by,
       // A distributor viewing its own customer may see that customer's personal name when no business name is set.
       counterpart: {
         id: r.c_id,
@@ -90,7 +94,9 @@ const REQUEST_TARGET: Record<string, { kind: LinkKind; targetRole: "PROVIDER" | 
 
 /**
  * Lower tier requests a link to an approved upper-tier party (C: one INSERT...SELECT).
- * REJECTED or REVOKED links go back to PENDING through ON CONFLICT; PENDING/ACTIVE ones are a 409.
+ * NOTE: the upper-revoke cooldown reads the REVOKED row's updated_at. Nothing may rewrite updated_at while a row is
+ * REVOKED (it would restart the 24h clock); only the ON CONFLICT re-request below leaves REVOKED.
+ * REJECTED or REVOKED links go back to PENDING through ON CONFLICT (24h cooldown after a rejection or an upper-tier revoke); PENDING/ACTIVE ones are a 409.
  */
 export async function requestLink(db: Db, actor: User, targetId: string, now = Date.now()): Promise<void> {
   const cfg = REQUEST_TARGET[actor.role];
@@ -103,21 +109,25 @@ export async function requestLink(db: Db, actor: User, targetId: string, now = D
       AND EXISTS (SELECT 1 FROM users a WHERE a.id = ${actor.id} AND a.status = 'ACTIVE')
     ON CONFLICT (upper_id, lower_id) DO UPDATE
       SET status = 'PENDING', requested_by = excluded.requested_by, decided_at = NULL, revoked_by = NULL, updated_at = excluded.updated_at
-      WHERE links.status = 'REVOKED'
+      WHERE (links.status = 'REVOKED'
+             AND (links.revoked_by IS NULL OR links.revoked_by <> links.upper_id OR links.updated_at <= ${now - REJECT_COOLDOWN_MS}))
          OR (links.status = 'REJECTED' AND (links.decided_at IS NULL OR links.decided_at <= ${now - REJECT_COOLDOWN_MS}))`);
   if (res.rowsAffected > 0) return;
   const [target] = await db.all<{ ok: number }>(
     sql`SELECT 1 AS ok FROM users WHERE id = ${targetId} AND role = ${cfg.targetRole} AND status = 'ACTIVE'`,
   );
   if (!target) throw new AppError("NOT_FOUND", "Party not found", 404);
-  const [existing] = await db.all<{ status: LinkStatus; decided_at: number | null }>(
-    sql`SELECT status, decided_at FROM links WHERE upper_id = ${targetId} AND lower_id = ${actor.id}`,
+  const [existing] = await db.all<{ status: LinkStatus; decided_at: number | null; updated_at: number; revoked_by: string | null }>(
+    sql`SELECT status, decided_at, updated_at, revoked_by FROM links WHERE upper_id = ${targetId} AND lower_id = ${actor.id}`,
   );
   if (!existing) throw new AppError("PARTY_INACTIVE", "Your account is not active", 403);
   if (existing.status === "ACTIVE") throw new AppError("ALREADY_LINKED", "Already linked", 409);
-  if (existing.status === "REJECTED") {
-    const waitMs = (existing.decided_at ?? 0) + REJECT_COOLDOWN_MS - now;
-    throw new AppError("REQUEST_COOLDOWN", "This request was declined recently. You can ask again after 24 hours.", 429, Math.max(1, Math.ceil(waitMs / 1000)));
+  const upperRevoked = existing.status === "REVOKED" && existing.revoked_by === targetId;
+  if (existing.status === "REJECTED" || upperRevoked) {
+    // Cooldown clock: updated_at of the REVOKED row (see requestLink note), decided_at of a REJECTED one.
+    const since = existing.status === "REJECTED" ? (existing.decided_at ?? 0) : existing.updated_at;
+    const waitMs = since + REJECT_COOLDOWN_MS - now;
+    throw new AppError("REQUEST_COOLDOWN", "This link was declined or ended by the other party recently. You can ask again after 24 hours.", 429, Math.max(1, Math.ceil(waitMs / 1000)));
   }
   throw new AppError("LINK_PENDING", "A link request is already pending", 409);
 }
