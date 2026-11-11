@@ -29,10 +29,18 @@ function isSql(x: unknown): x is SQL {
   return typeof x === "object" && x !== null && "queryChunks" in x;
 }
 
-/** True when the error (or any .cause) is the guard_assert abort. */
+/** True when some error in the .cause chain is a SQLITE_CONSTRAINT* error carrying the guard_assert abort message. */
 export function isAssertFailure(err: unknown): boolean {
   for (let e: unknown = err, depth = 0; e && depth < 6; depth++) {
-    if (e instanceof Error && e.message.includes(ASSERT_FAILED)) return true;
+    const code = (e as { code?: unknown }).code;
+    if (
+      e instanceof Error &&
+      e.message.includes(ASSERT_FAILED) &&
+      typeof code === "string" &&
+      code.startsWith("SQLITE_CONSTRAINT")
+    ) {
+      return true;
+    }
     e = (e as { cause?: unknown }).cause;
   }
   return false;

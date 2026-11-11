@@ -1,4 +1,4 @@
-import { and, count, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { sessions, users, type Role, type UserStatus } from "../db/schema";
 import { AppError } from "../errors";
@@ -72,4 +72,31 @@ export async function decideUser(db: Db, id: string, decision: "approve" | "reje
     if (decision === "reject") await tx.delete(sessions).where(eq(sessions.userId, id));
     return updated[0];
   });
+}
+
+/** Per role. */
+export const MAX_LINKABLE_PARTIES = 300;
+
+export interface PartyOption {
+  id: string;
+  name: string;
+  role: Role;
+  businessName: string | null;
+  city: string | null;
+}
+
+/** ACTIVE providers, distributors and customers for the admin force-link pickers. Capped per role so many customers never hide suppliers. No email or phone. */
+export async function listLinkableParties(db: Db, perRole: number = MAX_LINKABLE_PARTIES): Promise<PartyOption[]> {
+  const roles = ["PROVIDER", "DISTRIBUTOR", "CUSTOMER"] as const;
+  const lists = await Promise.all(
+    roles.map((role) =>
+      db
+        .select({ id: users.id, name: users.name, role: users.role, businessName: users.businessName, city: users.city })
+        .from(users)
+        .where(and(eq(users.status, "ACTIVE"), eq(users.role, role)))
+        .orderBy(asc(users.name), asc(users.id))
+        .limit(perRole),
+    ),
+  );
+  return lists.flat();
 }

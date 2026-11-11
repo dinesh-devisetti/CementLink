@@ -36,6 +36,14 @@ export async function readJson(req: Request, maxBytes: number = MAX_JSON_BYTES):
   }
 }
 
+/** For mutations that take no body: still refuse anything over the cap with 413. */
+export async function discardBody(req: Request, maxBytes: number = MAX_JSON_BYTES): Promise<void> {
+  const declared = Number(req.headers.get("content-length"));
+  if ((Number.isFinite(declared) && declared > maxBytes) || (await req.text()).length > maxBytes) {
+    throw new AppError("PAYLOAD_TOO_LARGE", "Request body is too large", 413);
+  }
+}
+
 /**
  * Client IP for rate limiting, or null when none can be trusted.
  * Only reads x-real-ip, and only when TRUST_PROXY=true (set by the platform proxy, e.g. Vercel).

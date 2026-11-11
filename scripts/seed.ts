@@ -62,8 +62,16 @@ export async function seedDemo(db: Db, password: string, now = Date.now()): Prom
   return created;
 }
 
+/** Demo accounts must never share the admin password. */
+export function assertDistinctPasswords(adminPassword: string, demoPassword?: string): void {
+  if (demoPassword !== undefined && demoPassword === adminPassword) {
+    throw new Error("DEMO_SEED_PASSWORD must differ from ADMIN_SEED_PASSWORD");
+  }
+}
+
 /** Seeds the admin; seeds demo data only when demoPassword is given and demoSeedAllowed(url). */
 export async function runSeed(url: string, token: string | undefined, email: string, password: string, demoPassword?: string) {
+  assertDistinctPasswords(password, demoPassword);
   const db = createDb(url, token);
   const adminCreated = await seedAdmin(db, email, password);
   if (demoPassword && demoSeedAllowed(url)) await seedDemo(db, demoPassword);

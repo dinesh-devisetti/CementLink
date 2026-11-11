@@ -53,6 +53,14 @@ describe("guard_assert", () => {
     expect(isAssertFailure(err)).toBe(false);
   });
 
+  it("requires the SQLITE_CONSTRAINT code, not just the message text", () => {
+    expect(isAssertFailure(new Error("ASSERT_FAILED"))).toBe(false);
+    expect(isAssertFailure(Object.assign(new Error("ASSERT_FAILED"), { code: "SQLITE_ERROR" }))).toBe(false);
+    expect(isAssertFailure(Object.assign(new Error("ASSERT_FAILED"), { code: "SQLITE_CONSTRAINT_TRIGGER" }))).toBe(true);
+    const wrapped = new Error("Failed query", { cause: Object.assign(new Error("ASSERT_FAILED"), { code: "SQLITE_CONSTRAINT" }) });
+    expect(isAssertFailure(wrapped)).toBe(true);
+  });
+
   it("activeLink fragment is false with no link", async () => {
     const r = await h.db.all<{ v: number }>(sql`SELECT (${activeLink("a", "b")}) AS v`);
     expect(Number(r[0].v)).toBe(0);
