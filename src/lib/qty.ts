@@ -1,34 +1,28 @@
-export const BAGS_PER_TONNE = 20;
+import { MAX_ORDER_KG } from "./constants";
 
-const TONNES_RE = /^\d{1,6}(\.\d{1,2})?$/;
+export { MAX_ORDER_KG };
 
-/** Convert a tonnes string to whole bags; only multiples of 0.05 t are valid. */
-export function tonnesToBags(input: string): number {
-  if (typeof input !== "string" || !TONNES_RE.test(input)) {
-    throw new Error("Invalid tonnes value");
-  }
+/** Tonnes input: 1-4 integer digits, optional 1-3 decimals. No sign, exponent, comma or whitespace. */
+const TONNES_RE = /^\d{1,4}(\.\d{1,3})?$/;
+export const INVALID_TONNES = "Enter tonnes with up to 3 decimals (max 1000)";
+
+/** Convert a tonnes string to integer kg. Throws Error(INVALID_TONNES) unless 0 < kg <= MAX_ORDER_KG. */
+export function tonnesToKg(input: string): number {
+  if (typeof input !== "string" || !TONNES_RE.test(input)) throw new Error(INVALID_TONNES);
   const [whole, frac = ""] = input.split(".");
-  const hundredths = Number(whole) * 100 + Number(frac.padEnd(2, "0"));
-  if (hundredths <= 0) throw new Error("Tonnes must be positive");
-  // 1 bag = 0.05 t = 5 hundredths
-  if (hundredths % 5 !== 0) throw new Error("Tonnes must be a multiple of 0.05");
-  return hundredths / 5;
+  const kg = Number(whole) * 1000 + Number(frac.padEnd(3, "0"));
+  if (kg <= 0 || kg > MAX_ORDER_KG) throw new Error(INVALID_TONNES);
+  return kg;
 }
 
-export function bagsToTonnes(bags: number): string {
-  if (!Number.isInteger(bags) || bags < 0) throw new Error("Bags must be a non-negative integer");
-  const hundredths = bags * 5;
-  const whole = Math.floor(hundredths / 100);
-  const frac = String(hundredths % 100).padStart(2, "0").replace(/0+$/, "");
+/** Integer kg to a tonnes string with trailing zeros trimmed: 10500 -> "10.5". */
+export function kgToTonnes(kg: number): string {
+  if (!Number.isInteger(kg) || kg < 0) throw new Error("Kg must be a non-negative integer");
+  const whole = Math.floor(kg / 1000);
+  const frac = String(kg % 1000).padStart(3, "0").replace(/0+$/, "");
   return frac ? `${whole}.${frac}` : String(whole);
 }
 
-export function formatQty(bags: number): string {
-  return `${bags} bags (${bagsToTonnes(bags)} t)`;
-}
-
-export function tripsFor(bags: number, capacityBags: number): number {
-  if (!Number.isInteger(bags) || bags < 0) throw new Error("Invalid bags");
-  if (!Number.isInteger(capacityBags) || capacityBags <= 0) throw new Error("Invalid capacity");
-  return Math.floor((bags + capacityBags - 1) / capacityBags);
+export function formatTonnes(kg: number): string {
+  return `${kgToTonnes(kg)} t`;
 }

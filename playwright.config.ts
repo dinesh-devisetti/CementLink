@@ -22,6 +22,7 @@ export default defineConfig({
       E2E: "1",
       ADMIN_SEED_EMAIL: "admin@example.com",
       ADMIN_SEED_PASSWORD: "AdminPass123!",
+      DEMO_SEED_PASSWORD: "DemoPass123!",
       COOKIE_SECURE: "false",
     },
   },

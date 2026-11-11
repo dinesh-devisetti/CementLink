@@ -1,26 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { parseRupeesToPaise, formatPaise } from "@/lib/money";
-import { tonnesToBags, bagsToTonnes, tripsFor } from "@/lib/qty";
 import { parseConfig } from "@/server/config";
 
 const base = { DATABASE_URL: "file:./x.db", APP_URL: "http://localhost:3000" };
-
-describe("QA edge: tonnes", () => {
-  it.each(["0.03", "1.01", "0.07", "2.5.1", "-1", "", " 1", "1e3", "abc", "0", "0.00", "1,5", "1234567"])("rejects %j", (v) => {
-    expect(() => tonnesToBags(v)).toThrow();
-  });
-  it.each([["0.05", 1], ["1", 20], ["1.5", 30], ["0.1", 2], ["2.25", 45], ["999999.95", 19999999]])("accepts %s", (v, bags) => {
-    expect(tonnesToBags(v)).toBe(bags);
-  });
-  it("round-trips bags", () => {
-    for (const b of [1, 7, 20, 33, 100]) expect(tonnesToBags(bagsToTonnes(b))).toBe(b);
-  });
-  it("tripsFor ceil and guards", () => {
-    expect(tripsFor(41, 20)).toBe(3);
-    expect(tripsFor(0, 20)).toBe(0);
-    expect(() => tripsFor(5, 0)).toThrow();
-  });
-});
 
 describe("QA edge: money", () => {
   it.each(["385.505", "-1", "", "1e2", ".5", "5.", "1,000", "NaN", "12345678"])("rejects %j", (v) => {

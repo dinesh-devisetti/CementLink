@@ -13,7 +13,8 @@
     "e2e": "playwright test --workers=1",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
-    "seed": "tsx scripts/seed.ts"
+    "seed": "tsx scripts/seed.ts",
+    "db:reset": "tsx scripts/reset-db.ts"
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",

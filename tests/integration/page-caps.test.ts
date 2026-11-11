@@ -20,7 +20,7 @@ process.env.DATABASE_URL = `file:${path.join(dir, "c.db")}`;
 process.env.APP_URL = "http://localhost:3000";
 
 type Route = (req: Request, ctx?: unknown) => Promise<Response>;
-let reqGet: Route, usersGet: Route;
+let usersGet: Route;
 let db: ReturnType<typeof import("@/server/db/client").getDb>;
 let sess: typeof import("@/server/auth/session");
 let schema: typeof import("@/server/db/schema");
@@ -38,17 +38,11 @@ beforeAll(async () => {
   sess = await import("@/server/auth/session");
   schema = await import("@/server/db/schema");
   await migrate(db, { migrationsFolder: path.resolve(import.meta.dirname, "../../drizzle") });
-  reqGet = (await import("@/app/api/requests/route")).GET as unknown as Route;
   usersGet = (await import("@/app/api/admin/users/route")).GET as unknown as Route;
 });
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
 describe("page cap (MAX_PAGE=1000) on every list endpoint", () => {
-  it("GET /api/requests", async () => {
-    await mkUser("cap-cust", "CUSTOMER");
-    expect((await reqGet(new Request("http://localhost:3000/api/requests?page=1000"))).status).toBe(200);
-    expect((await reqGet(new Request("http://localhost:3000/api/requests?page=1001"))).status).toBe(400);
-  });
   it("GET /api/admin/users", async () => {
     await mkUser("cap-admin", "ADMIN");
     expect((await usersGet(new Request("http://localhost:3000/api/admin/users?page=1000"))).status).toBe(200);

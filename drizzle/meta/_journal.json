@@ -36,6 +36,20 @@
       "when": 1794330083034,
       "tag": "0004_lean_bedlam",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1794428678797,
+      "tag": "0005_v2",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1794428692474,
+      "tag": "0006_guard_assert",
+      "breakpoints": true
     }
   ]
 }
