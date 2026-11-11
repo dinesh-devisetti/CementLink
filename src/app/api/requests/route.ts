@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { pageSchema } from "@/lib/validation/pagination";
 import { createRequestSchema } from "@/lib/validation/requests";
 import { readJson } from "@/server/auth/http";
 import { reserveAttempts } from "@/server/auth/rate-limit";
@@ -12,7 +13,7 @@ import { createRequest, listRequests } from "@/server/services/requests";
 export const runtime = "nodejs";
 
 const querySchema = z.object({
-  page: z.coerce.number().int().min(1).max(100_000).default(1),
+  page: pageSchema,
   limit: z.coerce.number().int().min(1).max(50).default(20),
 });
 

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { pageSchema } from "@/lib/validation/pagination";
 import { withAuth } from "@/server/auth/with-auth";
 import { getDb } from "@/server/db/client";
 import { listUsersByStatus } from "@/server/services/admin-users";
@@ -8,7 +9,7 @@ export const runtime = "nodejs";
 
 const querySchema = z.object({
   status: z.enum(["PENDING", "ACTIVE", "REJECTED"]).default("PENDING"),
-  page: z.coerce.number().int().min(1).max(100_000).default(1),
+  page: pageSchema,
   limit: z.coerce.number().int().min(1).max(50).default(50),
 });
 

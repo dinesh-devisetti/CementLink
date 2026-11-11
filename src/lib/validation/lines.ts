@@ -1,9 +1,10 @@
 import { z } from "zod";
+import { MAX_PRICE_PAISE } from "../constants";
 import { parseRupeesToPaise } from "../money";
 import { LINE_STATUSES } from "../../server/db/schema";
 import { pageSchema } from "./pagination";
 
-export const MAX_PRICE_PAISE = 10_000_000; // Rs 1,00,000 per bag is far above any real price
+export { MAX_PRICE_PAISE };
 
 /** Price is a rupee string ("385.50"); converted to integer paise with no floats. */
 export const acceptLineSchema = z

@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -89,6 +89,12 @@ beforeEach(() => {
   state.cookies = new Map();
   state.headers = new Headers({ origin: APP });
 });
+afterEach(() => vi.useRealTimers());
+/** Pin the clock mid-minute so the fixed 1-minute rate-limit bucket cannot roll over during a test. */
+const freezeMidMinute = () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-06-01T10:00:05Z"));
+};
 
 describe("POST /api/pos", () => {
   it("401 anon; 403 customer and provider", async () => {
@@ -172,6 +178,7 @@ describe("POST /api/pos", () => {
     expect((await create({ providerId: p1, qtyBags: 5, ratePerBag: "10" })).status).toBe(403);
   });
   it("is rate limited per actor (429 + Retry-After), other actors unaffected", async () => {
+    freezeMidMinute();
     const d = await mk("DISTRIBUTOR");
     await signIn(d);
     const ok = { providerId: p1, qtyBags: 1, ratePerBag: "10" };
@@ -245,7 +252,7 @@ describe("confirm / reject", () => {
     expect((await rejectPo(a)).status).toBe(409);
     expect((await poRow(a)).status).toBe("CONFIRMED");
   });
-  it("race: concurrent confirm and reject yields one winner", async () => {
+  it("concurrent confirm and reject yields one winner (same client, serialised by the conditional UPDATE)", async () => {
     const a = await placed();
     await signIn(p1);
     const [x, y] = await Promise.all([confirm(a), rejectPo(a)]);
@@ -273,6 +280,7 @@ describe("confirm / reject", () => {
     expect((await poRow(a)).status).toBe("PLACED");
   });
   it("is rate limited per provider", async () => {
+    freezeMidMinute();
     const p = await mk("PROVIDER");
     await signIn(p);
     const codes: number[] = [];
@@ -297,6 +305,7 @@ describe("GET /api/providers", () => {
 
 describe("V4 deferred: accept/reject limit and page cap", () => {
   it("accept/reject share a per-distributor limit, 429 after the cap", async () => {
+    freezeMidMinute();
     const d = await mk("DISTRIBUTOR");
     await signIn(d);
     const codes: number[] = [];

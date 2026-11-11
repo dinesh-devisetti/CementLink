@@ -113,6 +113,8 @@ export type RequestLineRow = typeof requestLines.$inferSelect;
 export const PO_STATUSES = ["PLACED", "CONFIRMED", "REJECTED"] as const;
 export type PoStatus = (typeof PO_STATUSES)[number];
 
+// NOTE: SQLite table rebuilds (drizzle-kit CHECK/column changes) disable FK enforcement; any future migration that
+// rebuilds purchase_orders (or invoices) must finish with `PRAGMA foreign_key_check` and fail on any rows.
 export const purchaseOrders = sqliteTable(
   "purchase_orders",
   {
@@ -134,8 +136,43 @@ export const purchaseOrders = sqliteTable(
     index("po_distributor_idx").on(t.distributorId, t.createdAt),
     check("po_qty_chk", sql`${t.qtyBags} > 0`),
     check("po_rate_chk", sql`${t.ratePerBagPaise} > 0`),
+    check("po_total_chk", sql`${t.totalPaise} = ${t.qtyBags} * ${t.ratePerBagPaise}`),
     check("po_status_chk", sql`${t.status} IN ('PLACED','CONFIRMED','REJECTED')`),
   ],
 );
 
 export type PurchaseOrderRow = typeof purchaseOrders.$inferSelect;
+
+export const invoices = sqliteTable(
+  "invoices",
+  {
+    id: text("id").primaryKey(),
+    poId: text("po_id")
+      .notNull()
+      .references(() => purchaseOrders.id),
+    providerId: text("provider_id")
+      .notNull()
+      .references(() => users.id),
+    // Denormalized so the distributor's read-only list is a single scoped query.
+    distributorId: text("distributor_id")
+      .notNull()
+      .references(() => users.id),
+    invoiceNo: text("invoice_no").notNull(),
+    invoiceDate: text("invoice_date").notNull(), // YYYY-MM-DD
+    qtyBags: integer("qty_bags").notNull(),
+    ratePerBagPaise: integer("rate_per_bag_paise").notNull(),
+    amountPaise: integer("amount_paise").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("invoices_provider_no_uq").on(t.providerId, t.invoiceNo),
+    index("invoices_po_idx").on(t.poId),
+    index("invoices_provider_idx").on(t.providerId, t.createdAt),
+    index("invoices_distributor_idx").on(t.distributorId, t.createdAt),
+    check("invoices_qty_chk", sql`${t.qtyBags} > 0`),
+    check("invoices_rate_chk", sql`${t.ratePerBagPaise} > 0`),
+    check("invoices_amount_chk", sql`${t.amountPaise} = ${t.qtyBags} * ${t.ratePerBagPaise}`),
+  ],
+);
+
+export type InvoiceRow = typeof invoices.$inferSelect;

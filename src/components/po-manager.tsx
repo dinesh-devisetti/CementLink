@@ -2,8 +2,12 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { MAX_PRICE_PAISE } from "@/lib/constants";
 import { formatPaise, parseRupeesToPaise } from "@/lib/money";
+import { MAX_TOTAL_BAGS } from "@/lib/qty-input";
+import type { InvoiceGroup } from "@/server/services/invoices";
 import type { PoView, ProviderOption } from "@/server/services/pos";
+import { InvoiceList } from "./invoice-list";
 import { PoBadge } from "./po-badge";
 import { Button, Card, Field } from "./ui";
 
@@ -11,21 +15,23 @@ interface Props {
   providers: ProviderOption[];
   rows: PoView[];
   unfulfilledBags: number;
+  /** Read-only invoices received, keyed by PO id. */
+  invoices: Record<string, InvoiceGroup>;
 }
 
 function parseQty(s: string): number | null {
-  return /^\d{1,6}$/.test(s) && Number(s) > 0 ? Number(s) : null;
+  return /^\d{1,6}$/.test(s) && Number(s) > 0 && Number(s) <= MAX_TOTAL_BAGS ? Number(s) : null;
 }
 function parseRate(s: string): number | null {
   try {
     const p = parseRupeesToPaise(s.trim());
-    return p > 0 ? p : null;
+    return p > 0 && p <= MAX_PRICE_PAISE ? p : null;
   } catch {
     return null;
   }
 }
 
-export function PoManager({ providers, rows, unfulfilledBags }: Props) {
+export function PoManager({ providers, rows, unfulfilledBags, invoices }: Props) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [providerId, setProviderId] = useState("");
@@ -152,6 +158,19 @@ export function PoManager({ providers, rows, unfulfilledBags }: Props) {
               <p className="text-sm tabular-nums">
                 {p.qtyBags} bags · {formatPaise(p.ratePerBagPaise)}/bag · Total {formatPaise(p.totalPaise)}
               </p>
+              {(invoices[p.id]?.total ?? 0) > 0 && (
+                <details className="pt-1">
+                  <summary className="min-h-11 cursor-pointer py-2 text-sm font-semibold text-primary">
+                    Invoices ({invoices[p.id].total})
+                  </summary>
+                  <InvoiceList rows={invoices[p.id].rows} />
+                  {invoices[p.id].total > invoices[p.id].rows.length && (
+                    <p className="text-sm text-muted">
+                      Showing {invoices[p.id].rows.length} of {invoices[p.id].total}
+                    </p>
+                  )}
+                </details>
+              )}
             </Card>
           ))}
         </ul>

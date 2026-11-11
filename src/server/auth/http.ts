@@ -5,7 +5,9 @@ import { AppError } from "../errors";
 
 export function handleError(err: unknown): NextResponse {
   if (err instanceof AppError) {
-    const res = errorResponse(err.httpStatus, err.code, err.message);
+    const res = err.fields
+      ? NextResponse.json({ success: false, error: err.message, code: err.code, fields: err.fields }, { status: err.httpStatus })
+      : errorResponse(err.httpStatus, err.code, err.message);
     if (err.retryAfterSec) res.headers.set("Retry-After", String(err.retryAfterSec));
     return res;
   }

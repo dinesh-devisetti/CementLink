@@ -60,6 +60,7 @@ export async function createPo(
   now: number = Date.now(),
 ): Promise<CreatedPo> {
   const { providerId, qtyBags, ratePerBagPaise } = input;
+  // Advisory only (informational warning), so reading it outside the insert statement is fine.
   const open = await unfulfilledBags(db, distributorId);
   const id = uuid();
   const res = await db.run(sql`
@@ -67,13 +68,13 @@ export async function createPo(
     select ${id}, ${distributorId}, ${providerId}, ${qtyBags}, ${ratePerBagPaise}, ${qtyBags} * ${ratePerBagPaise}, 'PLACED', ${now}
     where ${activeUser(distributorId, "DISTRIBUTOR")} and ${activeUser(providerId, "PROVIDER")}`);
   if (res.rowsAffected !== 1) {
-    const [p] = await db
+    const [d] = await db
       .select({ id: users.id })
       .from(users)
-      .where(and(eq(users.id, providerId), eq(users.role, "PROVIDER"), eq(users.status, "ACTIVE")))
+      .where(and(eq(users.id, distributorId), eq(users.role, "DISTRIBUTOR"), eq(users.status, "ACTIVE")))
       .limit(1);
-    if (!p) throw new AppError("INVALID_PROVIDER", "Choose an approved provider", 422);
-    throw new AppError("FORBIDDEN", "Your account is not active", 403);
+    if (!d) throw new AppError("FORBIDDEN", "Your account is not active", 403);
+    throw new AppError("INVALID_PROVIDER", "Choose an approved provider", 422);
   }
   return { id, totalPaise: qtyBags * ratePerBagPaise, status: "PLACED", overOrderBags: Math.max(0, qtyBags - Math.max(0, open)) };
 }
@@ -114,7 +115,8 @@ export async function listPos(
 export interface ProviderSummary {
   ordersReceived: number;
   awaitingReply: number;
-  confirmedBags: number;
+  /** Bags on CONFIRMED POs minus bags already invoiced against them. */
+  bagsToSupply: number;
 }
 
 export async function providerSummary(db: Db, providerId: string): Promise<ProviderSummary> {
@@ -123,10 +125,11 @@ export async function providerSummary(db: Db, providerId: string): Promise<Provi
       ordersReceived: count(),
       awaitingReply: sql<number>`coalesce(sum(case when ${purchaseOrders.status} = 'PLACED' then 1 else 0 end), 0)`,
       confirmedBags: sql<number>`coalesce(sum(case when ${purchaseOrders.status} = 'CONFIRMED' then ${purchaseOrders.qtyBags} else 0 end), 0)`,
+      invoicedOnConfirmed: sql<number>`coalesce(sum(case when ${purchaseOrders.status} = 'CONFIRMED' then (select coalesce(sum(i.qty_bags), 0) from invoices i where i.po_id = purchase_orders.id) else 0 end), 0)`,
     })
     .from(purchaseOrders)
     .where(eq(purchaseOrders.providerId, providerId));
-  return { ordersReceived: r.ordersReceived, awaitingReply: Number(r.awaitingReply), confirmedBags: Number(r.confirmedBags) };
+  return { ordersReceived: r.ordersReceived, awaitingReply: Number(r.awaitingReply), bagsToSupply: Math.max(0, Number(r.confirmedBags) - Number(r.invoicedOnConfirmed)) };
 }
 
 /** PLACED -> CONFIRMED/REJECTED in a single conditional UPDATE (own PO, provider still ACTIVE). */

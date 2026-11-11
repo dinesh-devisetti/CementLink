@@ -29,6 +29,13 @@
       "when": 1794327924019,
       "tag": "0003_quick_nomad",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1794330083034,
+      "tag": "0004_lean_bedlam",
+      "breakpoints": true
     }
   ]
 }

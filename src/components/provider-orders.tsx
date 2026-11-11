@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { formatPaise } from "@/lib/money";
@@ -46,6 +47,15 @@ export function ProviderOrders({ rows }: { rows: PoView[] }) {
           <p className="text-sm tabular-nums">
             {p.qtyBags} bags · {formatPaise(p.ratePerBagPaise)}/bag · Total {formatPaise(p.totalPaise)}
           </p>
+          {p.status === "CONFIRMED" && (
+            <Link
+              href={`/provider/orders/${encodeURIComponent(p.id)}`}
+              aria-label={`Add invoice for order from ${p.counterparty}`}
+              className="inline-flex min-h-11 items-center text-sm font-semibold text-primary underline"
+            >
+              Add invoice
+            </Link>
+          )}
           {errors[p.id] && (
             <p role="alert" className="text-sm text-danger">
               {errors[p.id]}

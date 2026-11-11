@@ -3,6 +3,7 @@ import { LogoutButton } from "@/components/logout-button";
 import { PoManager } from "@/components/po-manager";
 import { requireRolePage } from "@/server/auth/guards";
 import { getDb } from "@/server/db/client";
+import { invoicesByPo } from "@/server/services/invoices";
 import { listActiveProviders, listPos, unfulfilledBags } from "@/server/services/pos";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +16,7 @@ export default async function DistributorOrders() {
     listPos(db, { id: user.id, role: "DISTRIBUTOR" }, { page: 1, limit: 50 }),
     unfulfilledBags(db, user.id),
   ]);
+  const invoices = await invoicesByPo(db, { id: user.id, role: "DISTRIBUTOR" }, rows.map((r) => r.id));
   return (
     <main className="mx-auto max-w-3xl space-y-4 p-4">
       <header className="flex items-center justify-between">
@@ -25,7 +27,7 @@ export default async function DistributorOrders() {
         Back to requests
       </Link>
       <h1 className="text-2xl font-semibold">Purchase orders</h1>
-      <PoManager providers={providers} rows={rows} unfulfilledBags={open} />
+      <PoManager providers={providers} rows={rows} unfulfilledBags={open} invoices={invoices} />
       {total > rows.length && <p className="text-sm text-muted">Showing {rows.length} of {total}</p>}
     </main>
   );
