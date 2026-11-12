@@ -9,13 +9,15 @@ export function activeUser(userId: string): SQL {
 
 export type LinkKindName = "PROVIDER_DISTRIBUTOR" | "DISTRIBUTOR_CUSTOMER";
 
-/** Link ACTIVE between upper and lower, and both users ACTIVE. Pass `kind` to also require the link kind. */
-export function activeLink(upperId: string, lowerId: string, kind?: LinkKindName): SQL {
+/** Link ACTIVE between upper and lower, and both users ACTIVE. Pass `kind` to also require the link kind. Ids may be SQL column references. */
+export function activeLink(upperId: string | SQL, lowerId: string | SQL, kind?: LinkKindName): SQL {
   const k = kind ? sql` AND l.kind = ${kind}` : sql``;
+  const up = typeof upperId === "string" ? sql`${upperId}` : upperId;
+  const lo = typeof lowerId === "string" ? sql`${lowerId}` : lowerId;
   return sql`EXISTS (SELECT 1 FROM links l
     JOIN users u ON u.id = l.upper_id AND u.status = 'ACTIVE'
     JOIN users d ON d.id = l.lower_id AND d.status = 'ACTIVE'
-    WHERE l.upper_id = ${upperId} AND l.lower_id = ${lowerId} AND l.status = 'ACTIVE'${k})`;
+    WHERE l.upper_id = ${up} AND l.lower_id = ${lo} AND l.status = 'ACTIVE'${k})`;
 }
 
 /** SQL expression: a po_items row (alias `i`) whose PO is not REJECTED. Use inside a FROM po_items i. */

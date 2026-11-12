@@ -2,6 +2,7 @@ import { formatTonnes } from "@/lib/qty";
 import type { OrderDetail } from "@/server/services/orders";
 import { CancelOrderButton } from "./cancel-order-button";
 import { OrderStatusBadge } from "./order-status-badge";
+import { PoStatusBadge } from "./po-status-badge";
 
 /** Customer order page: split, remainder, address and (while REQUESTED) cancel. Grows with the document chain in V13+. */
 export function OrderDetailView({ order }: { order: OrderDetail }) {
@@ -33,6 +34,19 @@ export function OrderDetailView({ order }: { order: OrderDetail }) {
           )}
         </ul>
       </section>
+      {order.pos.length > 0 && (
+        <section aria-label="Purchase orders" className="space-y-2 rounded-card border border-border bg-surface p-4">
+          <h2 className="text-xl font-semibold">Purchase orders</h2>
+          <ul className="space-y-1">
+            {order.pos.map((p) => (
+              <li key={p.poId} className="flex items-center justify-between gap-3">
+                <span>{p.providerName} <span className="tabular-nums">{formatTonnes(p.qtyKg)}</span></span>
+                <PoStatusBadge status={p.status} />
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       {order.status === "REQUESTED" && <CancelOrderButton orderId={order.id} />}
     </div>
   );

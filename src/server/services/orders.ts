@@ -4,7 +4,7 @@ import type { Db } from "../db/client";
 import { AppError } from "../errors";
 import { activeLink } from "../db/fragments";
 import { assertSql, guardedBatch, isAssertFailure } from "../db/guard";
-import { orderAllocations, orders, type OrderStatus, type User } from "../db/schema";
+import { orderAllocations, orders, type OrderStatus, type PoStatus, type User } from "../db/schema";
 import type { CreateOrderInput } from "@/lib/validation/orders";
 import { partyLabel } from "./party-label";
 
@@ -28,6 +28,8 @@ export interface OrderDetail extends OrderSummary {
   rejectReason: string | null;
   allocations: Array<{ providerId: string; providerName: string; qtyKg: number }>;
   customer: { id: string; name: string };
+  /** The order's items per PO. Customers never see DRAFT POs and never see rates; provider is null on a draft without one. */
+  pos: Array<{ poId: string; status: PoStatus; providerName: string | null; qtyKg: number }>;
 }
 
 const CHOICE = sql`(o.qty_kg - COALESCE((SELECT SUM(a.qty_kg) FROM order_allocations a WHERE a.order_id = o.id), 0))`;
@@ -141,11 +143,21 @@ export async function getOrder(db: Db, actor: User, orderId: string): Promise<Or
     sql`SELECT a.provider_id, p.business_name, a.qty_kg FROM order_allocations a JOIN users p ON p.id = a.provider_id
         WHERE a.order_id = ${orderId} ORDER BY a.created_at, a.id`,
   );
+  const hide = actor.role === "CUSTOMER" ? sql`AND p.status NOT IN ('DRAFT','REJECTED')` : sql`AND p.status <> 'REJECTED'`;
+  const pos = await db.all<{ po_id: string; status: PoStatus; provider_id: string | null; business_name: string | null; qty_kg: number }>(
+    sql`SELECT p.id AS po_id, p.status, p.provider_id, u.business_name, i.qty_kg FROM po_items i
+        JOIN purchase_orders p ON p.id = i.po_id LEFT JOIN users u ON u.id = p.provider_id
+        WHERE i.order_id = ${orderId} ${hide} ORDER BY p.created_at, p.id`,
+  );
   const summary = toSummary(r, actor);
   return {
     ...summary,
     address: r.address, pincode: r.pincode, rejectReason: r.reject_reason,
     allocations: allocs.map((a) => ({ providerId: a.provider_id, providerName: partyLabel(a.business_name, "PROVIDER", a.provider_id), qtyKg: a.qty_kg })),
     customer: { id: r.customer_id, name: summary.customerName },
+    pos: pos.map((x) => ({
+      poId: x.po_id, status: x.status, qtyKg: x.qty_kg,
+      providerName: x.provider_id ? partyLabel(x.business_name, "PROVIDER", x.provider_id) : null,
+    })),
   };
 }

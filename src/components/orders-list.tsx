@@ -3,7 +3,7 @@ import { formatTonnes } from "@/lib/qty";
 import type { OrderSummary } from "@/server/services/orders";
 import { OrderStatusBadge } from "./order-status-badge";
 
-/** Order cards (mobile first). Customers link to the detail page; the distributor list is read only until V13. */
+/** Order cards (mobile first). Customers link to the detail page; the distributor opens the order page. */
 export function OrdersList({ orders, total, role }: { orders: OrderSummary[]; total: number; role: "CUSTOMER" | "DISTRIBUTOR" }) {
   if (orders.length === 0) {
     return (
@@ -33,13 +33,10 @@ export function OrdersList({ orders, total, role }: { orders: OrderSummary[]; to
           );
           return (
             <li key={o.id} className="rounded-card border border-border bg-surface p-4">
-              {role === "CUSTOMER" ? (
-                <Link href={`/customer/orders/${o.id}`} className="block space-y-1">
-                  {body}
-                </Link>
-              ) : (
-                <div className="space-y-1">{body}</div>
-              )}
+              <Link href={role === "CUSTOMER" ? `/customer/orders/${o.id}` : `/distributor/orders/${o.id}`} className="block space-y-1">
+                {body}
+                {role === "DISTRIBUTOR" && o.status === "REQUESTED" && <span className="text-sm font-semibold text-primary">Open</span>}
+              </Link>
             </li>
           );
         })}

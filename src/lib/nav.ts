@@ -39,6 +39,8 @@ export const ROLE_NAV: Record<NavRole, readonly NavItem[]> = {
 export const BUILT_HREFS: ReadonlySet<string> = new Set([
   "/customer/orders",
   "/distributor/orders",
+  "/distributor/pos",
+  "/provider/orders",
   "/customer/distributors",
   "/distributor/providers",
   "/distributor/customers",
