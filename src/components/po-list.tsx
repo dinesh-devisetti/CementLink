@@ -32,7 +32,7 @@ export function PoList({ pos, total, role }: { pos: PoView[]; total: number; rol
           );
           return (
             <li key={p.id} className="rounded-card border border-border bg-surface p-4">
-              {role === "PROVIDER" ? <Link href={`/provider/orders/${p.id}`} className="block space-y-1">{body}</Link> : <div className="space-y-1">{body}</div>}
+              {role === "PROVIDER" || p.status !== "DRAFT" ? <Link href={`/${role === "PROVIDER" ? "provider/orders" : "distributor/pos"}/${p.id}`} className="block space-y-1">{body}</Link> : <div className="space-y-1">{body}</div>}
             </li>
           );
         })}

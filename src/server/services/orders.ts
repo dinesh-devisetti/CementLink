@@ -29,7 +29,7 @@ export interface OrderDetail extends OrderSummary {
   allocations: Array<{ providerId: string; providerName: string; qtyKg: number }>;
   customer: { id: string; name: string };
   /** The order's items per PO. Customers never see DRAFT POs and never see rates; provider is null on a draft without one. */
-  pos: Array<{ poId: string; status: PoStatus; providerName: string | null; qtyKg: number }>;
+  pos: Array<{ poId: string; status: PoStatus; providerName: string | null; qtyKg: number; dispatchDate: string | null; vehicleNo: string | null }>;
 }
 
 const CHOICE = sql`(o.qty_kg - COALESCE((SELECT SUM(a.qty_kg) FROM order_allocations a WHERE a.order_id = o.id), 0))`;
@@ -85,6 +85,17 @@ export async function cancelOrder(db: Db, actor: User, orderId: string, now = Da
   const [row] = await db.select({ status: orders.status }).from(orders).where(and(eq(orders.id, orderId), eq(orders.customerId, actor.id)));
   if (!row) throw new AppError("NOT_FOUND", "Order not found", 404);
   throw new AppError("INVALID_STATE", `Order is ${row.status.toLowerCase().replace("_", " ")}, only a requested order can be cancelled`, 409);
+}
+
+/** Distributor marks its DISPATCHED order delivered (C): a single conditional UPDATE, so a double click has one winner. */
+export async function deliverOrder(db: Db, actor: User, orderId: string, now = Date.now()): Promise<void> {
+  const res = await db.run(sql`
+    UPDATE orders SET status = 'DELIVERED', delivered_at = ${now}, updated_at = ${now}
+    WHERE id = ${orderId} AND distributor_id = ${actor.id} AND status = 'DISPATCHED'`);
+  if (res.rowsAffected > 0) return;
+  const [row] = await db.select({ status: orders.status }).from(orders).where(and(eq(orders.id, orderId), eq(orders.distributorId, actor.id)));
+  if (!row) throw new AppError("NOT_FOUND", "Order not found", 404);
+  throw new AppError("INVALID_STATE", `Order is ${row.status.toLowerCase().replace(/_/g, " ")}, only a dispatched order can be marked delivered`, 409);
 }
 
 interface RawOrder {
@@ -144,9 +155,9 @@ export async function getOrder(db: Db, actor: User, orderId: string): Promise<Or
         WHERE a.order_id = ${orderId} ORDER BY a.created_at, a.id`,
   );
   const hide = actor.role === "CUSTOMER" ? sql`AND p.status NOT IN ('DRAFT','REJECTED')` : sql`AND p.status <> 'REJECTED'`;
-  const pos = await db.all<{ po_id: string; status: PoStatus; provider_id: string | null; business_name: string | null; qty_kg: number }>(
-    sql`SELECT p.id AS po_id, p.status, p.provider_id, u.business_name, i.qty_kg FROM po_items i
-        JOIN purchase_orders p ON p.id = i.po_id LEFT JOIN users u ON u.id = p.provider_id
+  const pos = await db.all<{ po_id: string; status: PoStatus; provider_id: string | null; business_name: string | null; qty_kg: number; dp_date: string | null; dp_vehicle: string | null }>(
+    sql`SELECT p.id AS po_id, p.status, p.provider_id, u.business_name, i.qty_kg, dp.dispatch_date AS dp_date, dp.vehicle_no AS dp_vehicle FROM po_items i
+        JOIN purchase_orders p ON p.id = i.po_id LEFT JOIN users u ON u.id = p.provider_id LEFT JOIN dispatches dp ON dp.po_id = p.id
         WHERE i.order_id = ${orderId} ${hide} ORDER BY p.created_at, p.id`,
   );
   const summary = toSummary(r, actor);
@@ -156,7 +167,7 @@ export async function getOrder(db: Db, actor: User, orderId: string): Promise<Or
     allocations: allocs.map((a) => ({ providerId: a.provider_id, providerName: partyLabel(a.business_name, "PROVIDER", a.provider_id), qtyKg: a.qty_kg })),
     customer: { id: r.customer_id, name: summary.customerName },
     pos: pos.map((x) => ({
-      poId: x.po_id, status: x.status, qtyKg: x.qty_kg,
+      poId: x.po_id, status: x.status, qtyKg: x.qty_kg, dispatchDate: x.dp_date, vehicleNo: x.dp_vehicle,
       providerName: x.provider_id ? partyLabel(x.business_name, "PROVIDER", x.provider_id) : null,
     })),
   };

@@ -40,7 +40,10 @@ export function OrderDetailView({ order }: { order: OrderDetail }) {
           <ul className="space-y-1">
             {order.pos.map((p) => (
               <li key={p.poId} className="flex items-center justify-between gap-3">
-                <span>{p.providerName} <span className="tabular-nums">{formatTonnes(p.qtyKg)}</span></span>
+                <span>
+                  {p.providerName} <span className="tabular-nums">{formatTonnes(p.qtyKg)}</span>
+                  {p.dispatchDate && <span className="block text-sm text-muted">Dispatched {p.dispatchDate}{p.vehicleNo ? `, vehicle ${p.vehicleNo}` : ""}</span>}
+                </span>
                 <PoStatusBadge status={p.status} />
               </li>
             ))}

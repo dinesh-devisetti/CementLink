@@ -34,6 +34,10 @@ export interface PoView {
   qtyKg: number;
   createdAt: number;
   placedAt: number | null;
+  /** Provider's reason, visible to the distributor and the provider only. */
+  rejectReason: string | null;
+  /** Transport details once dispatched. A customer gets the date and vehicle but never the driver's phone. */
+  dispatch: { dispatchDate: string; vehicleNo: string | null; driverPhone: string | null } | null;
   items: PoItemView[];
 }
 
@@ -51,6 +55,10 @@ interface RawPo {
   items_kg: number;
   created_at: number;
   placed_at: number | null;
+  reject_reason: string | null;
+  dp_date: string | null;
+  dp_vehicle: string | null;
+  dp_phone: string | null;
 }
 interface RawItem {
   id: string;
@@ -73,12 +81,13 @@ const scope = (a: User): SQL =>
     ? sql`p.distributor_id = ${a.id}`
     : a.role === "PROVIDER"
       ? sql`p.provider_id = ${a.id} AND p.status <> 'DRAFT'`
-      : sql`p.status <> 'DRAFT' AND EXISTS (SELECT 1 FROM po_items i JOIN orders o ON o.id = i.order_id WHERE i.po_id = p.id AND o.customer_id = ${a.id})`;
+      : sql`p.status NOT IN ('DRAFT','REJECTED') AND EXISTS (SELECT 1 FROM po_items i JOIN orders o ON o.id = i.order_id WHERE i.po_id = p.id AND o.customer_id = ${a.id})`;
 
 const SELECT = sql`SELECT p.id, p.status, p.version, p.provider_id, pr.business_name AS p_business, d.business_name AS d_business, p.distributor_id,
     p.rate_per_tonne_paise AS rate, p.total_paise AS total, p.qty_kg AS qty,
-    (SELECT COALESCE(SUM(qty_kg), 0) FROM po_items WHERE po_id = p.id) AS items_kg, p.created_at, p.placed_at
-  FROM purchase_orders p LEFT JOIN users pr ON pr.id = p.provider_id JOIN users d ON d.id = p.distributor_id`;
+    (SELECT COALESCE(SUM(qty_kg), 0) FROM po_items WHERE po_id = p.id) AS items_kg, p.created_at, p.placed_at,
+    p.reject_reason, dp.dispatch_date AS dp_date, dp.vehicle_no AS dp_vehicle, dp.driver_phone AS dp_phone
+  FROM purchase_orders p LEFT JOIN users pr ON pr.id = p.provider_id JOIN users d ON d.id = p.distributor_id LEFT JOIN dispatches dp ON dp.po_id = p.id`;
 
 async function itemsFor(db: Db, actor: User, poIds: readonly string[]): Promise<Map<string, RawItem[]>> {
   const map = new Map<string, RawItem[]>();
@@ -124,6 +133,8 @@ function toView(r: RawPo, items: RawItem[], actor: User): PoView {
     qtyKg: customer ? items.reduce((s, i) => s + i.qty_kg, 0) : (r.qty ?? Number(r.items_kg)),
     createdAt: r.created_at,
     placedAt: r.placed_at,
+    rejectReason: customer ? null : r.reject_reason,
+    dispatch: r.dp_date ? { dispatchDate: r.dp_date, vehicleNo: r.dp_vehicle, driverPhone: customer ? null : r.dp_phone } : null,
     items: items.map((i) => toItem(i, actor)),
   };
 }

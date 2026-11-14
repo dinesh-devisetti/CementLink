@@ -1,8 +1,10 @@
+import Link from "next/link";
 import { formatTonnes } from "@/lib/qty";
 import type { OrderDetail } from "@/server/services/orders";
 import type { PoView } from "@/server/services/pos";
 import { DraftPanel } from "./draft-panel";
 import type { ProviderOption } from "./draft-card";
+import { DeliverOrderButton } from "./deliver-order-button";
 import { OpenOrderOnMount } from "./open-order-on-mount";
 import { OrderStatusBadge } from "./order-status-badge";
 import { PoStatusBadge } from "./po-status-badge";
@@ -40,13 +42,17 @@ export function DistributorOrderView({ order, drafts, providers }: { order: Orde
           <ul className="space-y-1">
             {placed.map((p) => (
               <li key={p.poId} className="flex items-center justify-between gap-3">
-                <span>{p.providerName} <span className="tabular-nums">{formatTonnes(p.qtyKg)}</span></span>
+                <span>
+                  <Link href={`/distributor/pos/${p.poId}`} className="underline">{p.providerName} <span className="tabular-nums">{formatTonnes(p.qtyKg)}</span></Link>
+                  {p.dispatchDate && <span className="block text-sm text-muted">Dispatched {p.dispatchDate}{p.vehicleNo ? `, vehicle ${p.vehicleNo}` : ""}</span>}
+                </span>
                 <PoStatusBadge status={p.status} />
               </li>
             ))}
           </ul>
         </section>
       )}
+      {order.status === "DISPATCHED" && <DeliverOrderButton orderId={order.id} />}
     </div>
   );
 }

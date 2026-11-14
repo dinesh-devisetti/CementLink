@@ -498,7 +498,7 @@ describe("visibility", () => {
     expect((await call("po", `/api/pos/${da.id}`, "GET", undefined, da.id)).status).toBe(404);
     await as(ramu);
     const od = await (await call("one", `/api/orders/${a}`, "GET", undefined, a)).json();
-    expect(od.data.pos).toEqual([{ poId: da.id, status: "PLACED", providerName: "Anjani Biz", qtyKg: 4000 }]);
+    expect(od.data.pos).toEqual([{ poId: da.id, status: "PLACED", providerName: "Anjani Biz", qtyKg: 4000, dispatchDate: null, vehicleNo: null }]);
   });
 
   it("customers see no drafts in the order document chain; the distributor does", async () => {
@@ -508,7 +508,7 @@ describe("visibility", () => {
     expect((await (await call("one", `/api/orders/${id}`, "GET", undefined, id)).json()).data.pos).toEqual([]);
     await as(giri);
     const od = (await (await call("one", `/api/orders/${id}`, "GET", undefined, id)).json()).data;
-    expect(od.pos).toEqual([{ poId: expect.any(String), status: "DRAFT", providerName: null, qtyKg: 5000 }]);
+    expect(od.pos).toEqual([{ poId: expect.any(String), status: "DRAFT", providerName: null, qtyKg: 5000, dispatchDate: null, vehicleNo: null }]);
     const l = await (await call("pos", `/api/pos?status=DRAFT&orderId=${id}`, "GET")).json();
     expect(l.data).toHaveLength(1);
     expect(l.data[0].items[0]).toMatchObject({ orderQtyKg: 5000, orderCoverageKg: 5000, customerName: "Ramu" });
