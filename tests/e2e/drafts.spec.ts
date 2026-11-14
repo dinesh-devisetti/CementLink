@@ -90,3 +90,71 @@ test("Case 2: Ramu 15 t no split -> one \"choose provider\" draft -> Giri picks 
   await expect(ambuja.getByText("Placed", { exact: true })).toBeVisible();
   await expect(ambuja.getByText("Plot 12, Market Road, Hyderabad 500001")).toBeVisible();
 });
+
+test("V14: combine two Ambuja drafts from two Ramu orders -> place -> Ambuja sees one PO with 2 orders; split back is offered while draft", async ({ browser }) => {
+  const a = await ramuOrders(browser, "3.125", [["Ambuja Cement", "3.125"]]);
+  const b = await ramuOrders(browser, "2.5", [["Ambuja Cement", "2.5"]]);
+
+  const giri = await login(browser, "giri@example.com");
+  await giri.goto(`/distributor/orders/${a}`);
+  await expect(giri.getByRole("heading", { name: "Drafts (1)" })).toBeVisible();
+  await giri.goto(`/distributor/orders/${b}`);
+  await expect(giri.getByRole("heading", { name: "Drafts (1)" })).toBeVisible();
+
+  await giri.goto("/distributor/pos?tab=drafts");
+  const cards = giri.locator('section[aria-label="Drafts"] > ul > li');
+  const cardOf = (id: string) => cards.filter({ has: giri.getByRole("link", { name: `Order #${id.slice(-4)}` }) });
+  await cardOf(a).getByRole("checkbox", { name: /^Select draft/ }).check();
+  await expect(giri.getByRole("button", { name: /^Combine selected/ })).toBeDisabled();
+  await expect(giri.getByText("Combine: Select at least two drafts to combine.")).toBeVisible();
+  await cardOf(b).getByRole("checkbox", { name: /^Select draft/ }).check();
+  await expect(giri.getByRole("button", { name: "Combine selected (2)" })).toBeEnabled();
+  await giri.getByRole("button", { name: "Combine selected (2)" }).click();
+
+  const combined = cardOf(a);
+  await expect(combined).toHaveCount(1);
+  await expect(combined.getByRole("link", { name: `Order #${b.slice(-4)}` })).toBeVisible();
+  await expect(combined.getByRole("button", { name: /^Split back draft/ })).toBeVisible();
+  await combined.getByRole("checkbox", { name: /^Select draft/ }).check();
+  await giri.getByRole("button", { name: "Place selected (1)" }).click();
+  await giri.getByRole("button", { name: "Confirm place" }).click();
+  await expect(cardOf(a)).toHaveCount(0);
+
+  const ambuja = await login(browser, "ambuja@example.com");
+  await ambuja.goto("/provider/orders");
+  const card = ambuja.getByRole("link", { name: /^5\.625 t - Giri Traders Placed/ });
+  await expect(card).toHaveCount(1);
+  await expect(card).toContainText("2 orders");
+});
+
+test("V14: split back moves one order out of a combined draft into a new draft; at least one must stay", async ({ browser }) => {
+  const a = await ramuOrders(browser, "1.125", [["Ambuja Cement", "1.125"]]);
+  const b = await ramuOrders(browser, "1.5", [["Ambuja Cement", "1.5"]]);
+  const giri = await login(browser, "giri@example.com");
+  for (const id of [a, b]) {
+    await giri.goto(`/distributor/orders/${id}`);
+    await expect(giri.getByRole("heading", { name: "Drafts (1)" })).toBeVisible();
+  }
+  await giri.goto("/distributor/pos?tab=drafts");
+  const cards = giri.locator('section[aria-label="Drafts"] > ul > li');
+  const cardOf = (id: string) => cards.filter({ has: giri.getByRole("link", { name: `Order #${id.slice(-4)}` }) });
+  await cardOf(a).getByRole("checkbox", { name: /^Select draft/ }).check();
+  await cardOf(b).getByRole("checkbox", { name: /^Select draft/ }).check();
+  await giri.getByRole("button", { name: "Combine selected (2)" }).click();
+
+  const combined = cardOf(a);
+  await expect(combined.getByRole("link", { name: `Order #${b.slice(-4)}` })).toBeVisible();
+  await combined.getByRole("button", { name: /^Split back draft/ }).click();
+  const group = combined.getByRole("group", { name: /^Split back draft/ });
+  await expect(group.getByRole("button", { name: "Split back selected" })).toBeDisabled();
+  await group.getByLabel(new RegExp(`Move order #${b.slice(-4)}`)).check();
+  await group.getByLabel(new RegExp(`Move order #${a.slice(-4)}`)).check();
+  await expect(group.getByText("At least one order must stay in the draft.")).toBeVisible();
+  await group.getByLabel(new RegExp(`Move order #${a.slice(-4)}`)).uncheck();
+  await group.getByRole("button", { name: "Split back selected" }).click();
+
+  await expect(cardOf(b)).toHaveCount(1);
+  await expect(cardOf(a)).toHaveCount(1);
+  await expect(cardOf(a).getByRole("link", { name: `Order #${b.slice(-4)}` })).toHaveCount(0);
+  await expect(cardOf(b).getByRole("link", { name: `Order #${a.slice(-4)}` })).toHaveCount(0);
+});

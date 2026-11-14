@@ -66,12 +66,45 @@ export function DraftCard({
           </div>
         </div>
       </div>
+      {draft.items.length > 1 && <SplitBack draft={draft} label={label} version={version} run={run} send={send} busy={busy} />}
       <ul className="space-y-3">
         {draft.items.map((it) => (
           <ItemRow key={`${it.id}-${it.qtyKg}-${version}`} item={it} draftLabel={label} version={version} providers={providers} run={run} send={send} busy={busy} />
         ))}
       </ul>
     </li>
+  );
+}
+
+type Send = (url: string, method: "POST" | "PATCH", body?: unknown) => Promise<{ ok: true } | { ok: false; error: string }>;
+
+/** Split-back for a combined draft: choose the order items to move into a new draft; at least one must stay. */
+function SplitBack({ draft, label, version, run, send, busy }: { draft: PoView; label: string; version: number; run: Run; send: Send; busy: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [chosen, setChosen] = useState<ReadonlySet<string>>(new Set());
+  const ids = draft.items.map((i) => i.id).filter((x): x is string => x !== null);
+  const reason = chosen.size === 0 ? "Choose the orders to move out." : chosen.size >= ids.length ? "At least one order must stay in the draft." : null;
+  const toggle = (id: string) => setChosen((c) => (c.has(id) ? new Set([...c].filter((x) => x !== id)) : new Set([...c, id])));
+  return (
+    <div className="space-y-2">
+      <Button type="button" disabled={busy} className="border border-border bg-transparent text-text" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        Split back {label}
+      </Button>
+      {open && (
+        <div role="group" aria-label={`Split back ${label}`} className="space-y-2 rounded-input border border-border p-3">
+          {draft.items.map((i) => (
+            <label key={i.id} className="flex min-h-11 items-center gap-2 text-sm">
+              <input type="checkbox" className="h-5 w-5" checked={chosen.has(i.id ?? "")} onChange={() => i.id && toggle(i.id)} />
+              Move order #{i.orderId.slice(-4)} ({kgToTonnes(i.qtyKg)} t) to a new draft
+            </label>
+          ))}
+          {reason && <p role="status" className="text-sm text-muted">{reason}</p>}
+          <Button type="button" disabled={busy || reason !== null} onClick={() => void run(() => send(`/api/pos/${draft.id}/split-back`, "POST", { version, itemIds: [...chosen] }))}>
+            Split back selected
+          </Button>
+        </div>
+      )}
+    </div>
   );
 }
 

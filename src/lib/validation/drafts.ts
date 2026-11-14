@@ -54,3 +54,21 @@ export const placeSchema = z
   .strict()
   .refine((v) => new Set(v.pos.map((p) => p.id)).size === v.pos.length, { message: "Each draft can appear only once", path: ["pos"] });
 export type PlaceInput = z.output<typeof placeSchema>;
+
+export const MAX_COMBINE_POS = 20;
+export const combineSchema = z
+  .object({
+    pos: z
+      .array(z.object({ id, version }).strict())
+      .min(2, "Select at least two drafts")
+      .max(MAX_COMBINE_POS, `Combine at most ${MAX_COMBINE_POS} at a time`),
+  })
+  .strict()
+  .refine((v) => new Set(v.pos.map((p) => p.id)).size === v.pos.length, { message: "Each draft can appear only once", path: ["pos"] });
+export type CombineInput = z.output<typeof combineSchema>;
+
+export const splitBackSchema = z
+  .object({ version, itemIds: z.array(id).min(1, "Select at least one item").max(100, "Too many items") })
+  .strict()
+  .refine((v) => new Set(v.itemIds).size === v.itemIds.length, { message: "Each item can appear only once", path: ["itemIds"] });
+export type SplitBackInput = z.output<typeof splitBackSchema>;

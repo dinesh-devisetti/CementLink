@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { sendJson } from "@/lib/client-api";
-import { placeBlockReason } from "@/lib/draft-rules";
+import { combineBlockReason, placeBlockReason } from "@/lib/draft-rules";
 import type { PoView } from "@/server/services/pos";
 import { DraftCard, type ProviderOption } from "./draft-card";
 import { Button } from "./ui";
@@ -21,6 +21,7 @@ export function DraftPanel({ drafts, providers }: { drafts: PoView[]; providers:
 
   const chosen = drafts.filter((d) => selected.has(d.id));
   const reason = placeBlockReason(chosen);
+  const combineReason = combineBlockReason(chosen);
 
   async function run(fn: () => Promise<{ ok: true } | { ok: false; error: string }>) {
     setBusy(true);
@@ -41,10 +42,25 @@ export function DraftPanel({ drafts, providers }: { drafts: PoView[]; providers:
     <section aria-label="Drafts" className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-xl font-semibold">Drafts ({drafts.length})</h2>
-        <Button type="button" disabled={busy || reason !== null} onClick={() => setConfirming(true)}>
-          Place selected ({chosen.length})
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            disabled={busy || combineReason !== null}
+            className="border border-border bg-transparent text-text"
+            onClick={() => void run(async () => {
+              const r = await sendJson("/api/pos/combine", "POST", { pos: chosen.map((d) => ({ id: d.id, version: d.version ?? 0 })) });
+              if (r.ok) setSelected(new Set());
+              return r;
+            })}
+          >
+            Combine selected ({chosen.length})
+          </Button>
+          <Button type="button" disabled={busy || reason !== null} onClick={() => setConfirming(true)}>
+            Place selected ({chosen.length})
+          </Button>
+        </div>
       </div>
+      {combineReason && <p role="status" className="text-sm text-muted">Combine: {combineReason}</p>}
       {reason && <p role="status" className="text-sm text-muted">{reason}</p>}
       {confirming && (
         <div role="alertdialog" aria-label="Confirm place" className="space-y-2 rounded-card border border-border bg-surface p-4">

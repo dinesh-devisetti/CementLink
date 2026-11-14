@@ -24,6 +24,7 @@ export default defineConfig({
       ADMIN_SEED_PASSWORD: "AdminPass123!",
       DEMO_SEED_PASSWORD: "DemoPass123!",
       COOKIE_SECURE: "false",
+      REQUEST_MAX_PER_HOUR: "100",
     },
   },
 });
