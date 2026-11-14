@@ -37,7 +37,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ t
           </Link>
         ))}
       </nav>
-      {tab === "drafts" ? <DraftPanel drafts={rows} providers={providers} /> : <PoList pos={rows} total={all.total} role="DISTRIBUTOR" />}
+      {tab === "drafts" ? <DraftPanel drafts={rows} providers={providers} /> : <PoList pos={rows} total={all.total} role="DISTRIBUTOR" from={tab === "all" ? "all" : "placed"} />}
     </RoleShell>
   );
 }

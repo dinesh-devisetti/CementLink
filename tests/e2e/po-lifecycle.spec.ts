@@ -39,6 +39,14 @@ test("V15: Ambuja rejects -> Giri re-picks Anjani -> accept -> dispatch -> Giri 
   await giri.getByRole("button", { name: "Confirm place" }).click();
   await expect(giri.getByText("POs placed", { exact: true })).toBeVisible();
 
+  // Back navigation: Placed tab -> open PO -> back returns to the Placed tab.
+  await giri.goto("/distributor/pos?tab=placed");
+  await giri.getByRole("list").getByRole("link").first().click();
+  await expect(giri).toHaveURL(/\/distributor\/pos\/[\w-]+\?from=placed$/);
+  await giri.getByRole("link", { name: /Placed POs/ }).click();
+  await expect(giri).toHaveURL(/\/distributor\/pos\?tab=placed$/);
+  await expect(giri.getByRole("link", { name: "Placed", exact: true })).toHaveAttribute("aria-current", "page");
+
   // Ambuja rejects it.
   const ambuja = await login(browser, "ambuja@example.com");
   await ambuja.goto("/provider/orders");

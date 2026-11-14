@@ -22,7 +22,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
       listLinkedProviders(db, user.id),
     ]);
     return (
-      <RoleShell role="DISTRIBUTOR" title="Order" userName={user.name}>
+      <RoleShell role="DISTRIBUTOR" title="Order" back={{ href: "/distributor/orders", label: "Orders" }} userName={user.name}>
         <DistributorOrderView order={order} drafts={drafts.rows} providers={providers} />
       </RoleShell>
     );

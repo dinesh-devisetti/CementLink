@@ -5,7 +5,7 @@ import type { PoView } from "@/server/services/pos";
 import { PoStatusBadge } from "./po-status-badge";
 
 /** Placed/all POs as cards. The provider variant links to its read-only detail page. */
-export function PoList({ pos, total, role }: { pos: PoView[]; total: number; role: "DISTRIBUTOR" | "PROVIDER" }) {
+export function PoList({ pos, total, role, from }: { pos: PoView[]; total: number; role: "DISTRIBUTOR" | "PROVIDER"; from?: "placed" | "all" }) {
   if (pos.length === 0) {
     return <p className="rounded-card border border-border bg-surface p-4">{role === "PROVIDER" ? "No purchase orders yet." : "No purchase orders here yet."}</p>;
   }
@@ -32,7 +32,7 @@ export function PoList({ pos, total, role }: { pos: PoView[]; total: number; rol
           );
           return (
             <li key={p.id} className="rounded-card border border-border bg-surface p-4">
-              {role === "PROVIDER" || p.status !== "DRAFT" ? <Link href={`/${role === "PROVIDER" ? "provider/orders" : "distributor/pos"}/${p.id}`} className="block space-y-1">{body}</Link> : <div className="space-y-1">{body}</div>}
+              {role === "PROVIDER" || p.status !== "DRAFT" ? <Link href={`/${role === "PROVIDER" ? "provider/orders" : "distributor/pos"}/${p.id}${role === "DISTRIBUTOR" && from ? `?from=${from}` : ""}`} className="block space-y-1">{body}</Link> : <div className="space-y-1">{body}</div>}
             </li>
           );
         })}

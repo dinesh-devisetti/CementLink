@@ -16,7 +16,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   try {
     const po = await getPo(getDb(), user, id.data);
     return (
-      <RoleShell role="PROVIDER" title="Purchase order" userName={user.name}>
+      <RoleShell role="PROVIDER" title="Purchase order" back={{ href: "/provider/orders", label: "Purchase orders" }} userName={user.name}>
         <ProviderPoView po={po} />
       </RoleShell>
     );

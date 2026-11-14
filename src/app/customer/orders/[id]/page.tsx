@@ -16,7 +16,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   try {
     const order = await getOrder(getDb(), user, id.data);
     return (
-      <RoleShell role="CUSTOMER" title="Order" userName={user.name}>
+      <RoleShell role="CUSTOMER" title="Order" back={{ href: "/customer/orders", label: "My orders" }} userName={user.name}>
         <OrderDetailView order={order} />
       </RoleShell>
     );
