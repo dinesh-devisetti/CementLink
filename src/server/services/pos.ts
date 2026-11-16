@@ -143,10 +143,10 @@ function toView(r: RawPo, items: RawItem[], actor: User): PoView {
 export async function listPos(
   db: Db,
   actor: User,
-  opts: { status?: PoStatus; excludeDraft?: boolean; orderId?: string; page: number; limit: number },
+  opts: { status?: PoStatus; excludeDraft?: boolean; orderId?: string; distributorId?: string; page: number; limit: number },
 ): Promise<{ rows: PoView[]; total: number }> {
   const filters = sql.join(
-    [scope(actor), ...(opts.status ? [sql`p.status = ${opts.status}`] : []), ...(opts.excludeDraft ? [sql`p.status <> 'DRAFT'`] : []), ...(opts.orderId ? [sql`EXISTS (SELECT 1 FROM po_items i WHERE i.po_id = p.id AND i.order_id = ${opts.orderId})`] : [])],
+    [scope(actor), ...(opts.status ? [sql`p.status = ${opts.status}`] : []), ...(opts.excludeDraft ? [sql`p.status <> 'DRAFT'`] : []), ...(opts.distributorId ? [sql`p.distributor_id = ${opts.distributorId}`] : []), ...(opts.orderId ? [sql`EXISTS (SELECT 1 FROM po_items i WHERE i.po_id = p.id AND i.order_id = ${opts.orderId})`] : [])],
     sql` AND `,
   );
   const raws = await db.all<RawPo>(sql`${SELECT} WHERE ${filters} ORDER BY p.created_at DESC, p.id DESC LIMIT ${opts.limit} OFFSET ${(opts.page - 1) * opts.limit}`);

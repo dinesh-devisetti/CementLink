@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { check, index, integer, primaryKey, sqliteTable, text, uniqueIndex, type AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 
-import { ROLE_VALUES } from "../../lib/constants";
+import { PAYMENT_MODES, ROLE_VALUES } from "../../lib/constants";
 
 export const ROLES = ROLE_VALUES;
 export const STATUSES = ["PENDING", "ACTIVE", "REJECTED"] as const;
@@ -263,8 +263,6 @@ export const providerInvoices = sqliteTable(
     check("provider_invoices_status_chk", sql`${t.status} IN ('UNPAID','PAID')`),
   ],
 );
-
-export const PAYMENT_MODES = ["CASH", "UPI", "NEFT", "RTGS", "IMPS", "CHEQUE", "OTHER"] as const;
 
 export const providerPayments = sqliteTable(
   "provider_payments",

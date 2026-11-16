@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { LINKS_PAGE_SIZE } from "@/lib/constants";
@@ -196,6 +197,9 @@ function Row({ link, error, children }: { link: LinkRow; error?: string; childre
             <span className="font-normal text-muted">{place(link.counterpart.city)}</span>
           </p>
           <LinkStatusBadge status={link.status} revokedBy={link.revokedBy} label={pendingMine ? "Pending - you requested" : undefined} />
+          {link.kind === "PROVIDER_DISTRIBUTOR" && link.side === "upper" && (link.status === "ACTIVE" || (link.status === "REVOKED" && link.revokedBy)) && (
+            <Link href={`/provider/distributors/${link.counterpart.id}`} className="inline-flex min-h-11 items-center font-semibold text-primary">View orders, invoices and receipts</Link>
+          )}
         </div>
         {children && <div className="flex gap-2">{children}</div>}
       </div>
