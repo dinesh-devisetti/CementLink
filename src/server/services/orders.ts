@@ -6,6 +6,8 @@ import { activeLink } from "../db/fragments";
 import { assertSql, guardedBatch, isAssertFailure } from "../db/guard";
 import { orderAllocations, orders, type OrderStatus, type PoStatus, type User } from "../db/schema";
 import type { CreateOrderInput } from "@/lib/validation/orders";
+import { getOrderChain, type OrderChain } from "./customer-invoices";
+import { istDate } from "@/lib/dates";
 import { partyLabel } from "./party-label";
 
 export interface OrderSummary {
@@ -23,6 +25,10 @@ export interface OrderSummary {
 }
 
 export interface OrderDetail extends OrderSummary {
+  /** Customer invoice, latest payment and (distributor only) provider invoices. */
+  chain: OrderChain;
+  /** IST date the distributor marked the order delivered (lower bound for the customer invoice date). */
+  deliveredOn: string | null;
   address: string;
   pincode: string;
   rejectReason: string | null;
@@ -109,6 +115,7 @@ interface RawOrder {
   needed_by: string;
   reject_reason: string | null;
   created_at: number;
+  delivered_at: number | null;
   distributor_id: string;
   d_business: string | null;
   customer_id: string;
@@ -116,7 +123,7 @@ interface RawOrder {
   c_business: string | null;
 }
 
-const SELECT = sql`SELECT o.id, o.status, o.qty_kg, ${CHOICE} AS choice_kg, o.city, o.address, o.pincode, o.needed_by, o.reject_reason, o.created_at,
+const SELECT = sql`SELECT o.id, o.status, o.qty_kg, ${CHOICE} AS choice_kg, o.city, o.address, o.pincode, o.needed_by, o.reject_reason, o.created_at, o.delivered_at,
     o.distributor_id, d.business_name AS d_business, o.customer_id, c.name AS c_name, c.business_name AS c_business
   FROM orders o JOIN users d ON d.id = o.distributor_id JOIN users c ON c.id = o.customer_id`;
 
@@ -161,8 +168,11 @@ export async function getOrder(db: Db, actor: User, orderId: string): Promise<Or
         WHERE i.order_id = ${orderId} ${hide} ORDER BY p.created_at, p.id`,
   );
   const summary = toSummary(r, actor);
+  const chain = await getOrderChain(db, actor, orderId);
   return {
     ...summary,
+    chain,
+    deliveredOn: r.delivered_at === null ? null : istDate(Number(r.delivered_at)),
     address: r.address, pincode: r.pincode, rejectReason: r.reject_reason,
     allocations: allocs.map((a) => ({ providerId: a.provider_id, providerName: partyLabel(a.business_name, "PROVIDER", a.provider_id), qtyKg: a.qty_kg })),
     customer: { id: r.customer_id, name: summary.customerName },

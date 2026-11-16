@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { formatPaise } from "@/lib/money";
-import type { BalanceRow, Balances } from "@/server/services/balances";
+import type { BalanceRow, Balances, Receivable } from "@/server/services/balances";
 import type { InvoiceBalanceView, ProviderPaymentView } from "@/server/services/provider-payments";
 
 /** Read-only money lists shared by the provider and distributor Payments tabs. Server-renderable. */
@@ -18,6 +18,24 @@ export function BalanceSummary({ balances, title, empty, href }: { balances: Bal
               <p className="tabular-nums text-muted">Invoiced {formatPaise(r.invoicedPaise)} - Paid {formatPaise(r.paidPaise)}</p>
               <p className="tabular-nums font-semibold">Outstanding {formatPaise(r.outstandingPaise)}</p>
             </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/** Distributor only: money still to receive from customers (invoices not yet paid through the webhook-confirmed Razorpay flow). */
+export function ReceivableSummary({ receivable }: { receivable: Receivable }) {
+  return (
+    <section aria-label="To receive from customers" className="space-y-2 rounded-card border border-border bg-surface p-4">
+      <h2 className="text-xl font-semibold">To receive from customers</h2>
+      <p className="text-3xl font-semibold tabular-nums" data-testid="receivable-total">{formatPaise(receivable.toReceivePaise)}</p>
+      <p className="text-sm tabular-nums text-muted">Invoiced {formatPaise(receivable.invoicedPaise)} - Paid online {formatPaise(receivable.paidPaise)}</p>
+      {receivable.rows.length === 0 ? <p className="text-sm text-muted">No customer invoices yet.</p> : (
+        <ul className="space-y-1">
+          {receivable.rows.map((r) => (
+            <li key={r.customerId} className="flex justify-between gap-2 text-sm tabular-nums" data-testid="receivable-row"><span>{r.customer}</span><span>{formatPaise(r.toReceivePaise)}</span></li>
           ))}
         </ul>
       )}

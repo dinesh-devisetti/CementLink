@@ -1,6 +1,7 @@
 import { formatTonnes } from "@/lib/qty";
 import type { OrderDetail } from "@/server/services/orders";
 import { CancelOrderButton } from "./cancel-order-button";
+import { OrderInvoiceSection } from "./order-invoice-section";
 import { OrderStatusBadge } from "./order-status-badge";
 import { PoStatusBadge } from "./po-status-badge";
 
@@ -50,6 +51,7 @@ export function OrderDetailView({ order }: { order: OrderDetail }) {
           </ul>
         </section>
       )}
+      <OrderInvoiceSection chain={order.chain} role="CUSTOMER" />
       {order.status === "REQUESTED" && <CancelOrderButton orderId={order.id} />}
     </div>
   );

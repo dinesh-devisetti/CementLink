@@ -2,6 +2,8 @@ import Link from "next/link";
 import { formatTonnes } from "@/lib/qty";
 import type { OrderDetail } from "@/server/services/orders";
 import type { PoView } from "@/server/services/pos";
+import { CustomerInvoiceForm } from "./customer-invoice-form";
+import { OrderInvoiceSection } from "./order-invoice-section";
 import { DraftPanel } from "./draft-panel";
 import type { ProviderOption } from "./draft-card";
 import { DeliverOrderButton } from "./deliver-order-button";
@@ -11,7 +13,7 @@ import { PoStatusBadge } from "./po-status-badge";
 import { RejectOrderForm } from "./reject-order-form";
 
 /** Distributor order page: delivery details, auto-open of a REQUESTED order, the draft panel and the placed POs. */
-export function DistributorOrderView({ order, drafts, providers }: { order: OrderDetail; drafts: PoView[]; providers: ProviderOption[] }) {
+export function DistributorOrderView({ order, drafts, providers, deliveredOn, today }: { order: OrderDetail; drafts: PoView[]; providers: ProviderOption[]; deliveredOn?: string; today?: string }) {
   const placed = order.pos.filter((p) => p.status !== "DRAFT");
   return (
     <div className="space-y-4">
@@ -53,6 +55,8 @@ export function DistributorOrderView({ order, drafts, providers }: { order: Orde
         </section>
       )}
       {order.status === "DISPATCHED" && <DeliverOrderButton orderId={order.id} />}
+      {order.status === "DELIVERED" && deliveredOn && today && <CustomerInvoiceForm orderId={order.id} qtyKg={order.qtyKg} deliveredOn={deliveredOn} today={today} />}
+      <OrderInvoiceSection chain={order.chain} role="DISTRIBUTOR" />
     </div>
   );
 }

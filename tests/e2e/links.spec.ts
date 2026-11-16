@@ -45,10 +45,10 @@ test("Giri requests Anjani -> Anjani approves; tabs are links with aria-current"
   await giri.reload();
   await expect(giri.getByRole("region", { name: "Linked" }).getByText("Anjani Cement")).toBeVisible();
 
-  // An unbuilt tab is a real link to a placeholder page.
+  // Tabs are real links; the current one carries aria-current.
   await giri.getByRole("link", { name: "Invoices out" }).click();
   await expect(giri).toHaveURL(/\/distributor\/invoices-out$/);
-  await expect(giri.getByText("Coming in a later release.")).toBeVisible();
+  await expect(giri.getByRole("heading", { name: "Invoices out" })).toBeVisible();
   await expect(giri.getByRole("link", { name: "Invoices out" })).toHaveAttribute("aria-current", "page");
   await expect(giri.getByRole("link", { name: "Providers", exact: true })).not.toHaveAttribute("aria-current", "page");
 });

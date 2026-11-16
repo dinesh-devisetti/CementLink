@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { DistributorOrderView } from "@/components/distributor-order-view";
 import { RoleShell } from "@/components/role-shell";
+import { todayIst } from "@/lib/dates";
 import { orderIdSchema } from "@/lib/validation/orders";
 import { requireRolePage } from "@/server/auth/guards";
 import { getDb } from "@/server/db/client";
@@ -23,7 +24,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
     ]);
     return (
       <RoleShell role="DISTRIBUTOR" title="Order" back={{ href: "/distributor/orders", label: "Orders" }} userName={user.name}>
-        <DistributorOrderView order={order} drafts={drafts.rows} providers={providers} />
+        <DistributorOrderView order={order} drafts={drafts.rows} providers={providers} deliveredOn={order.deliveredOn ?? undefined} today={todayIst()} />
       </RoleShell>
     );
   } catch (e) {

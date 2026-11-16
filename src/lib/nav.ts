@@ -49,6 +49,9 @@ export const BUILT_HREFS: ReadonlySet<string> = new Set([
   "/provider/distributors",
   "/distributor/payments",
   "/provider/payments",
+  "/distributor/invoices-out",
+  "/customer/invoices",
+  "/customer/payments",
   "/admin/approvals",
 ]);
 

@@ -367,3 +367,4 @@ export type LinkRow = typeof links.$inferSelect;
 export type OrderRow = typeof orders.$inferSelect;
 export type PurchaseOrderRow = typeof purchaseOrders.$inferSelect;
 export type PoItemRow = typeof poItems.$inferSelect;
+export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];

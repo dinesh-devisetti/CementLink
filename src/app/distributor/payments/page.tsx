@@ -1,4 +1,4 @@
-import { BalanceSummary, InvoiceBalanceList, ReceiptList } from "@/components/payment-lists";
+import { BalanceSummary, InvoiceBalanceList, ReceiptList, ReceivableSummary } from "@/components/payment-lists";
 import { ProviderPaymentForm } from "@/components/provider-payment-form";
 import { RoleShell } from "@/components/role-shell";
 import { todayIst } from "@/lib/dates";
@@ -16,6 +16,7 @@ export default async function Page() {
   const today = todayIst();
   return (
     <RoleShell role="DISTRIBUTOR" title="Payments" userName={user.name}>
+      {balances.receivable && <ReceivableSummary receivable={balances.receivable} />}
       <BalanceSummary balances={balances} title="Payable to providers" empty="Nothing payable yet." />
       <h2 className="text-xl font-semibold">Invoices to pay</h2>
       <InvoiceBalanceList rows={payable} empty="No unpaid provider invoices.">
