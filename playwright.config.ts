@@ -20,6 +20,7 @@ export default defineConfig({
       APP_URL: `http://localhost:${PORT}`,
       PAYMENT_GATEWAY: "fake",
       E2E: "1",
+      E2E_HTTP: "1",
       ADMIN_SEED_EMAIL: "admin@example.com",
       ADMIN_SEED_PASSWORD: "AdminPass123!",
       DEMO_SEED_PASSWORD: "DemoPass123!",

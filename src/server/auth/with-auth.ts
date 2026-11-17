@@ -20,17 +20,25 @@ export function withAuth<P = Record<string, never>>(
   handler: (ctx: AuthCtx<P>) => Promise<NextResponse>,
 ) {
   return async (req: Request, route: { params: Promise<P> }): Promise<NextResponse> => {
+    let res: NextResponse;
     try {
-      if (!SAFE_METHODS.has(req.method.toUpperCase())) {
-        const bad = await checkOrigin();
-        if (bad) return bad;
-      }
-      const auth = await requireRole(...roles);
-      if ("response" in auth) return auth.response;
-      const params = (await route?.params) ?? ({} as P);
-      return await handler({ actor: auth.actor, req, params });
+      res = await run(req, route);
     } catch (err) {
-      return handleError(err);
+      res = handleError(err);
     }
+    // Authed API responses are per-user: always no-store (overrides any Cache-Control a route set).
+    res.headers.set("Cache-Control", "no-store");
+    return res;
   };
+
+  async function run(req: Request, route: { params: Promise<P> }): Promise<NextResponse> {
+    if (!SAFE_METHODS.has(req.method.toUpperCase())) {
+      const bad = await checkOrigin();
+      if (bad) return bad;
+    }
+    const auth = await requireRole(...roles);
+    if ("response" in auth) return auth.response;
+    const params = (await route?.params) ?? ({} as P);
+    return handler({ actor: auth.actor, req, params });
+  }
 }
