@@ -53,6 +53,9 @@ export const BUILT_HREFS: ReadonlySet<string> = new Set([
   "/customer/invoices",
   "/customer/payments",
   "/admin/approvals",
+  "/admin/distributors",
+  "/admin/customers",
+  "/admin/transport",
 ]);
 
 /** True when `pathname` is this tab's route or one of its sub-routes. */
