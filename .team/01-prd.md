@@ -4,10 +4,11 @@ Primary user: Distributor (hub); also Customer, Provider, Admin. 4 roles, one lo
 MVP stories: S1 login+admin approval | S2 linking | S3 customer order w/ optional provider split | S4 auto-draft POs, edit/combine/place | S5 provider accept/reject/dispatch + invoice | S6 customer invoice + Razorpay test pay + webhook | S7 manual payments to provider + balances | S8 admin analytics
 Key defaults: tonnes, up to 3 decimals, stored as integer kg | INR integer paise, rate per tonne | provider prices on its invoice, distributor prices on customer invoice (PO rate optional) | PO dispatched whole, invoices may be partial | distributor marks order "delivered" | links requested by the lower tier, approved by the upper tier | one customer invoice per order, paid in full only
 Statuses: Order requested>under review>POs placed>dispatched>delivered>invoiced>paid (+rejected, cancelled) | PO draft>placed>accepted/rejected>dispatched>invoiced>paid
-Non-goals (Later): transport/truck planner, GPS, native app, SMS/WhatsApp, GST e-invoicing, distributor->provider online pay, refunds, partial customer payment.
-Open questions: none BLOCKING (non-blocking defaults at bottom).
+Non-goals (Later): GPS, native app, SMS/WhatsApp, GST e-invoicing, distributor->provider online pay, refunds, partial customer payment. (Transport now scoped as V22 below.)
+Open questions: v2 none BLOCKING (defaults at bottom). V22: none BLOCKING (Q1 answered; defaults at V22 end).
+V22 (see "## V22 Transport planner" at end): new TRANSPORTER role + dashboard; distributor requests transport from a transporter after provider ACCEPTS the PO and shares vehicle/driver details; transporter accepts/rejects; provider sees details and dispatches with them; customer sees read-only. Stories T1-T5; reuses POs/dispatches; new migration 0006; no GPS, no paid services.
 Must-pass: Ramu/Giri/Anjani/Ambuja, both cases, in S3+S4 (verbatim below).
-Next: ui-designer + architect (parallel), then planner re-slices using "Delta from v1".
+Next: ui-designer + architect (parallel), then planner re-slices using "Delta from v1". (V22: planner may slice now; Q1 answered.)
 
 ## User Stories
 ### S1 - Role login and admin approval  [priority: must] (built V1-V2, mostly unchanged)
@@ -106,10 +107,72 @@ Acceptance:
 - Unchanged: V1 auth, V2 approval/gating (add revoke UI), rate limits, Razorpay gateway design. No production data exists, so dev DB may be reset (new migration or regenerate).
 
 ## Later (not in MVP)
-- Transport/truck planner, GPS, native app, SMS/WhatsApp, GST e-invoicing/PDF, distributor->provider online payments, live Razorpay/settlement, partial customer payments, refunds, credit terms, stock, customer delivery confirmation, ratings, multi-role accounts, CSV export, audit log, email verification/password reset.
+- Transport/truck planner (now scoped as V22 below), GPS, native app, SMS/WhatsApp, GST e-invoicing/PDF, distributor->provider online payments, live Razorpay/settlement, partial customer payments, refunds, credit terms, stock, customer delivery confirmation, ratings, multi-role accounts, CSV export, audit log, email verification/password reset.
 
 ## Open Questions (all non-blocking, defaults stated)
 - Provider/distributor-initiated invites (vs requester-initiated links)? Default: lower tier requests, upper tier approves.
 - Distributor may PO to a provider without a customer order (stock)? Default: no in MVP; POs originate from orders.
 - Customer pays before delivery? Default: invoice only after "delivered".
 - Provider may record receipts itself? Default: distributor records, provider read-only.
+
+## V22 Transport planner
+Problem: Distributors arrange transport with their own transporter contacts by phone, and providers do not know who is collecting, in what vehicle, or when; dispatch details are typed ad hoc (S5).
+Real-world flow: provider ACCEPTS PO -> distributor requests transport from a transporter and shares transport details -> transporter accepts/rejects -> provider sees the details and dispatches the PO using them.
+Users: Transporter (NEW role, own dashboard), Distributor (requests), Provider (dispatches), Customer and Admin (read-only visibility).
+Reuses: purchase_orders (ACCEPTED), po_items -> orders (address, city, pincode, needed_by), dispatches (date, vehicle, driver), existing dispatch rules (whole PO, placed date <= date <= today), admin approval flow (S1), V19 admin transport list.
+New data (migration 0006; 0005_v2 frozen): role value TRANSPORTER on users (company name, phone, city; admin-approved like provider); table transport_requests (po_id, distributor_id, transporter_id, vehicle_no, driver_name, driver_phone, pickup_date, note, status REQUESTED/ACCEPTED/REJECTED/CANCELLED, reject_reason, timestamps; at most one REQUESTED/ACCEPTED request per PO); nullable transport_request_id on dispatches. No new PO/order statuses. Provider vehicles/trips model is DROPPED.
+Defaults decided: transporter logs in and accepts/rejects | distributor enters vehicle/driver/pickup date (transporter accepts or rejects, cannot edit) | transporters onboard by self-register + admin approval, listed in an approved directory (no link handshake) | provider CANNOT dispatch until the request is ACCEPTED (strict gate) | customer sees transporter name, vehicle no, driver name/phone, status read-only.
+
+### T1 - Transporter role and dashboard  [priority: must]
+As a transporter I want to register and see only the requests addressed to me.
+Acceptance:
+- Given a visitor registers as Transporter, When they log in before admin approval, Then "pending approval" page, no actions, and they are absent from the directory; after approval they reach the Transporter dashboard.
+- Given an approved transporter, When they open the dashboard, Then they see only requests addressed to them (status, PO tonnes, provider name and city, delivery address/city/pincode, needed-by, distributor name, vehicle/driver/pickup date); no rates, invoices or payments anywhere.
+- Given a non-transporter opens transporter pages/APIs, or a transporter opens another role's or another transporter's data, Then 403.
+
+### T2 - Distributor requests transport  [priority: must]
+As a distributor I want to request transport for an accepted PO from a transporter and share the vehicle/driver details.
+Acceptance:
+- Given Giri's PO is ACCEPTED, When he picks an approved transporter and enters vehicle no (normalised as in dispatch), driver name, driver phone, pickup date (>= today, <= needed-by optional warning only), optional note, Then a request is saved REQUESTED and shown on the PO.
+- Given the PO is not ACCEPTED (placed, rejected, dispatched, other distributor's PO), Then API returns 409/403 and nothing is created.
+- Given an open (REQUESTED/ACCEPTED) request exists, When he creates another for the same PO, Then 409; he may cancel a REQUESTED request, or edit its details while REQUESTED, but not once ACCEPTED/dispatched.
+- Given a REJECTED request, Then he sees the reason and may create a new request with another transporter.
+
+### T3 - Transporter accepts or rejects  [priority: must]
+As a transporter I want to accept or reject a request.
+Acceptance:
+- Given a REQUESTED request addressed to Meena Transports, When she accepts, Then status is ACCEPTED and the distributor and provider see it.
+- Given she rejects without a reason, Then validation error; with a reason, status REJECTED and the distributor sees it.
+- Given a request that is CANCELLED, ACCEPTED, REJECTED or already dispatched, When she acts again, Then 409; another transporter acting on it gets 403.
+
+### T4 - Provider sees details and dispatches  [priority: must]
+As a provider I want to see the transport details and dispatch the PO using them.
+Acceptance:
+- Given Anjani's ACCEPTED PO with an ACCEPTED transport request, When she opens it, Then she sees transporter, vehicle, driver name/phone and pickup date, and "Dispatch" is enabled prefilled with these values (dispatch date, placed date <= date <= today).
+- Given the PO has no request, or request is REQUESTED/REJECTED/CANCELLED, When she dispatches, Then API returns 409 "transport not arranged" and the UI shows "Waiting for distributor/transporter".
+- Given she dispatches, Then PO becomes DISPATCHED (whole PO), the dispatch row stores vehicle/driver and the request id, order rollups follow S4, and distributor, transporter and admin (V19 transport list) see it.
+- Given a dispatched PO, Then no new or changed request is possible; POs dispatched before V22 are untouched.
+- Given another provider's PO, Then 403.
+
+### T5 - Customer and distributor visibility  [priority: should]
+As a customer I want to know who is bringing my cement; as a distributor I want one place to track transport.
+Acceptance:
+- Given Ramu's order has a transport request ACCEPTED or dispatched, When he opens the order, Then he sees transporter name, vehicle no, driver name/phone, pickup date and status (read-only); with none or REQUESTED he sees "Transport being arranged"; REJECTED/CANCELLED details are never shown.
+- Given Giri opens "Deliveries", Then he sees only his POs with request status, transporter, vehicle, and "Needs transport" on ACCEPTED POs without an open request; needed-by < today and not dispatched shows "At risk".
+- Given another customer or distributor, Then they never see these details (403/empty).
+
+## V22 MVP cut vs later
+- MVP: T1-T4 must; T5 should (may split to the next slice). One request per PO, one PO per request, strict dispatch gate.
+- Later: transporter-edited vehicle/driver, multi-PO trips on one truck, transporter "picked up/in transit/delivered" statuses, transporter rates/invoices/payments, distributor-saved transporter contacts or link handshake, relaxing the gate for ad hoc dispatch, driver view, admin transporter analytics, SMS/WhatsApp notify, delivery confirmation.
+
+## V22 Non-goals
+- No GPS or live tracking, no maps/route APIs, no paid services; free-tier hosting/DB only, runs on 8GB laptop.
+- No new PO/order status, no change to invoicing or payments, no schema change beyond TRANSPORTER role + transport_requests + nullable dispatch link (new migration 0006; 0005_v2 stays frozen).
+
+## V22 Open Questions
+- None BLOCKING.
+- Q2 non-blocking: Strict gate (no dispatch until transporter ACCEPTED)? Default: yes. Fallback if too rigid: allow dispatch once details are shared, even if REQUESTED.
+- Q3 non-blocking: Can the legacy free-text vehicle on dispatch (S5) remain? Default: no for new dispatches (details come from the request); old rows keep their text.
+- Q4 non-blocking: Does the transporter need to edit vehicle/driver (real transporters often assign trucks)? Default: no, distributor enters; revisit after pilot feedback.
+- Q5 non-blocking: Directory pick vs link handshake for transporters? Default: directory of admin-approved transporters, no handshake.
+- Q6 non-blocking: Is T5 in this slice? Default: yes, marked should; may split.
