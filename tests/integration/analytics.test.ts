@@ -229,3 +229,75 @@ describe("service role guard", () => {
     await expect(svc.listAdminDispatches(db, { role: "DISTRIBUTOR" }, { page: 1, limit: 5 })).rejects.toMatchObject({ httpStatus: 403 });
   });
 });
+
+describe("V21 filters (q, from, to)", () => {
+  type Res<T> = { data: T[]; meta: { total: number; totals?: { salesPaise: number; orderedKg: number } } };
+  const j = async <T,>(r: string, p: string) => { const res = await get(r, p); expect(res.status).toBe(200); return (await res.json()) as Res<T>; };
+  const names = (b: Res<{ distributor: string }>) => b.data.map((d) => d.distributor).sort();
+
+  it("search matches distributors case-insensitively; wildcards are literal; injection text is inert", async () => {
+    await as("admin");
+    expect(names(await j("dist", "/x?q=GIR"))).toEqual(["Giri"]);
+    // Headline totals follow the search: only matched distributors count.
+    expect((await j("dist", "/x?q=GIR")).meta.totals).toEqual({ salesPaise: expectSales.g, orderedKg: 16000 });
+    expect((await j("dist", "/x?q=nomatch")).meta.totals).toEqual({ salesPaise: 0, orderedKg: 0 });
+    expect(names(await j("dist", "/x?q=%25"))).toEqual([]); // literal %, not wildcard
+    expect(names(await j("dist", "/x?q=" + encodeURIComponent("'; DROP TABLE users;--")))).toEqual([]);
+    expect(names(await j("dist", "/x?q=%20%20"))).toEqual(["Giri", "Hari", "Idle"]); // blank = no filter
+    expect((await j("dist", "/x?q=" + "a".repeat(5000))).data).toEqual([]); // capped, still 200
+  });
+
+  it("date range filters sales (invoice day) and tonnes (PO IST day); inclusive bounds", async () => {
+    await as("admin");
+    const hit = await j<{ distributor: string; salesPaise: number; orderedKg: number }>("dist", "/x?from=2026-01-10&to=2026-01-10");
+    const g = hit.data.find((d) => d.distributor === "Giri")!;
+    expect(g.salesPaise).toBe(expectSales.g);
+    expect(g.orderedKg).toBe(16000);
+    const miss = await j<{ distributor: string; salesPaise: number; orderedKg: number }>("dist", "/x?from=2026-01-11&to=2026-01-20");
+    expect(miss.data.every((d) => d.salesPaise === 0 && d.orderedKg === 0)).toBe(true);
+    expect(miss.meta.totals).toEqual({ salesPaise: 0, orderedKg: 0 });
+    // PO created 2026-01-10T00:00Z = 05:30 IST: the day before excludes it, the same day includes it.
+    expect((await j<{ orderedKg: number }>("dist", "/x?to=2026-01-09")).data.every((d) => d.orderedKg === 0)).toBe(true);
+  });
+
+  it("invalid filters fall back to defaults, never 500; from > to is ignored", async () => {
+    await as("admin");
+    for (const qs of ["from=garbage", "to=2026-13-45", "from=2026-02-30", "from=2026-03-02&to=2026-03-01", "q[]=x&from[]=y"]) {
+      const b = await j<{ distributor: string }>("dist", `/x?${qs}`);
+      expect(names(b)).toEqual(["Giri", "Hari", "Idle"]);
+    }
+  });
+
+  it("transport: date range and search over parties, vehicle", async () => {
+    await as("admin");
+    const ids = async (qs: string) => (await j<{ id: string }>("disp", `/x?${qs}`)).data.map((d) => d.id).sort();
+    expect(await ids("")).toEqual(["d1", "d2", "d3"]);
+    expect(await ids("from=2026-01-08")).toEqual(["d2", "d3"]);
+    expect(await ids("to=2026-01-05")).toEqual(["d1"]);
+    expect(await ids("from=2026-01-05&to=2026-01-08")).toEqual(["d1", "d2", "d3"]);
+    expect(await ids("q=ka01z")).toEqual(["d3"]);
+    expect(await ids("q=ambuja&from=2026-01-08")).toEqual(["d2", "d3"]);
+    expect((await j<{ id: string }>("disp", "/x?q=Ambuja")).meta.total).toBe(3);
+    expect(await ids("q=nomatch")).toEqual([]);
+  });
+
+  it("customers: search by name/email and date range scopes counts", async () => {
+    await as("admin");
+    const rows = async (qs: string) => (await j<{ customer: string; orderCount: number }>("cust", `/x?${qs}`));
+    expect((await rows("q=ramu")).data.map((c) => c.customer)).toEqual(["Ramu Co"]);
+    expect((await rows("q=c3@x")).data.map((c) => c.customer)).toEqual(["NoOrders"]);
+    const all = await rows("");
+    const c1All = all.data.find((c) => c.customer === "Ramu Co")!.orderCount;
+    const inRange = await rows("from=2026-01-10&to=2026-01-10");
+    expect(inRange.data.find((c) => c.customer === "Ramu Co")!.orderCount).toBe(c1All);
+    expect(inRange.data.find((c) => c.customer === "NoOrders")).toBeUndefined(); // no orders in range
+    expect((await rows("from=2026-02-01")).data).toEqual([]);
+  });
+
+  it("filters do not weaken auth", async () => {
+    state.cookies.clear();
+    expect((await get("dist", "/x?q=a")).status).toBe(401);
+    await as("g");
+    expect((await get("cust", "/x?q=a")).status).toBe(403);
+  });
+});

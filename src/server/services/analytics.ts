@@ -3,6 +3,8 @@ import type { Db } from "../db/client";
 import { AppError } from "../errors";
 import type { OrderStatus, User } from "../db/schema";
 import { partyLabel } from "./party-label";
+import { NO_FILTERS, type AnalyticsFilters } from "@/lib/validation/admin-analytics";
+import { allOf, dayInRange, epochInRange, searchAny } from "./analytics-filters";
 
 /**
  * Admin analytics (PRD S8). Read-only, ADMIN only (routes enforce; the service re-checks the role).
@@ -40,7 +42,7 @@ export interface DistributorAnalytics {
 export interface DistributorAnalyticsResult {
   rows: DistributorAnalytics[];
   total: number;
-  /** Platform-wide across ALL distributors (including revoked/pending); rows are ACTIVE distributors only. */
+  /** Platform-wide across ALL distributors (including revoked/pending) unless q is set, then matched ACTIVE distributors only. */
   totals: { salesPaise: number; orderedKg: number };
 }
 
@@ -51,25 +53,33 @@ interface DistributorRaw {
 interface ProviderRaw { did: string; pid: string; business_name: string | null; kg: number; n: number }
 
 export async function getDistributorAnalytics(
-  db: Db, actor: Pick<User, "role">, p: Page, providerCap = PROVIDERS_PER_DISTRIBUTOR_CAP,
+  db: Db, actor: Pick<User, "role">, p: Page, providerCap = PROVIDERS_PER_DISTRIBUTOR_CAP, f: AnalyticsFilters = NO_FILTERS,
 ): Promise<DistributorAnalyticsResult> {
   assertAdmin(actor);
   const w = window(p);
+  // Dates: sales by invoice_date (IST day), tonnes by PO created_at (IST day). Search: distributor name/business/city.
+  const invWhen = allOf([sql`ci.status = 'PAID'`, ...dayInRange(sql`ci.invoice_date`, f)]);
+  const poWhen = allOf([sql`po.status NOT IN ('DRAFT','REJECTED')`, ...epochInRange(sql`po.created_at`, f)]);
+  const distWhen = allOf([sql`u.role = 'DISTRIBUTOR'`, sql`u.status = 'ACTIVE'`, ...searchAny(f.q, [sql`u.business_name`, sql`u.name`, sql`u.city`])]);
   const dists = await db.all<DistributorRaw>(sql`SELECT u.id, u.business_name, u.city,
       COALESCE((SELECT SUM(CAST(ci.amount_paise AS INTEGER)) FROM customer_invoices ci
-        WHERE ci.distributor_id = u.id AND ci.status = 'PAID'), 0) AS sales,
+        WHERE ci.distributor_id = u.id AND ${invWhen}), 0) AS sales,
       (SELECT count(*) FROM customer_invoices ci
-        WHERE ci.distributor_id = u.id AND ci.status = 'PAID') AS paid_n,
+        WHERE ci.distributor_id = u.id AND ${invWhen}) AS paid_n,
       COALESCE((SELECT SUM(CAST(po.qty_kg AS INTEGER)) FROM purchase_orders po
-        WHERE po.distributor_id = u.id AND po.status NOT IN ('DRAFT','REJECTED')), 0) AS ordered_kg,
+        WHERE po.distributor_id = u.id AND ${poWhen}), 0) AS ordered_kg,
       (SELECT count(DISTINCT po.provider_id) FROM purchase_orders po
-        WHERE po.distributor_id = u.id AND po.status NOT IN ('DRAFT','REJECTED')) AS provider_n
-    FROM users u WHERE u.role = 'DISTRIBUTOR' AND u.status = 'ACTIVE'
+        WHERE po.distributor_id = u.id AND ${poWhen}) AS provider_n
+    FROM users u WHERE ${distWhen}
     ORDER BY sales DESC, u.id LIMIT ${w.limit} OFFSET ${w.offset}`);
-  const [cnt] = await db.all<{ n: number }>(sql`SELECT count(*) AS n FROM users WHERE role = 'DISTRIBUTOR' AND status = 'ACTIVE'`);
+  const [cnt] = await db.all<{ n: number }>(sql`SELECT count(*) AS n FROM users u WHERE ${distWhen}`);
+  // Platform-wide, except that a search scopes the totals to the matched distributors.
+  const scope = (col: ReturnType<typeof sql.raw>) => (f.q ? [sql`${col} IN (SELECT u.id FROM users u WHERE ${distWhen})`] : []);
+  const invTot = allOf([invWhen, ...scope(sql.raw("ci.distributor_id"))]);
+  const poTot = allOf([poWhen, ...scope(sql.raw("po.distributor_id"))]);
   const [tot] = await db.all<{ sales: number | null; kg: number | null }>(sql`SELECT
-    (SELECT SUM(CAST(amount_paise AS INTEGER)) FROM customer_invoices WHERE status = 'PAID') AS sales,
-    (SELECT SUM(CAST(qty_kg AS INTEGER)) FROM purchase_orders WHERE status NOT IN ('DRAFT','REJECTED')) AS kg`);
+    (SELECT SUM(CAST(ci.amount_paise AS INTEGER)) FROM customer_invoices ci WHERE ${invTot}) AS sales,
+    (SELECT SUM(CAST(po.qty_kg AS INTEGER)) FROM purchase_orders po WHERE ${poTot}) AS kg`);
 
   const byDist = new Map<string, ProviderTonnes[]>();
   if (dists.length > 0) {
@@ -80,7 +90,7 @@ export async function getDistributorAnalytics(
         FROM (SELECT po.distributor_id AS did, po.provider_id AS pid,
             SUM(CAST(po.qty_kg AS INTEGER)) AS kg, count(*) AS n
           FROM purchase_orders po
-          WHERE po.distributor_id IN (${ids}) AND po.status NOT IN ('DRAFT','REJECTED')
+          WHERE po.distributor_id IN (${ids}) AND ${poWhen}
           GROUP BY po.distributor_id, po.provider_id) g
         JOIN users u ON u.id = g.pid) ranked
       WHERE rn <= ${providerCap} ORDER BY did, rn`);
@@ -125,14 +135,19 @@ const DISPATCH_FROM = sql`FROM dispatches x
     JOIN users d ON d.id = x.distributor_id
     JOIN users pr ON pr.id = x.provider_id`;
 
-export async function listAdminDispatches(db: Db, actor: Pick<User, "role">, p: Page): Promise<{ rows: DispatchRow[]; total: number }> {
+export async function listAdminDispatches(db: Db, actor: Pick<User, "role">, p: Page, f: AnalyticsFilters = NO_FILTERS): Promise<{ rows: DispatchRow[]; total: number }> {
   assertAdmin(actor);
   const w = window(p);
+  const when = allOf([
+    ...dayInRange(sql`x.dispatch_date`, f),
+    ...searchAny(f.q, [sql`d.business_name`, sql`d.name`, sql`pr.business_name`, sql`pr.name`, sql`x.vehicle_no`, sql`x.driver_phone`]),
+  ]);
   const rows = await db.all<DispatchRaw>(sql`SELECT x.id, x.po_id, x.dispatch_date, x.vehicle_no, x.driver_phone, po.qty_kg,
       x.distributor_id AS did, d.business_name AS d_business, x.provider_id AS pid, pr.business_name AS p_business
     ${DISPATCH_FROM}
+    WHERE ${when}
     ORDER BY x.dispatch_date DESC, x.created_at DESC, x.id DESC LIMIT ${w.limit} OFFSET ${w.offset}`);
-  const [t] = await db.all<{ n: number }>(sql`SELECT count(*) AS n ${DISPATCH_FROM}`);
+  const [t] = await db.all<{ n: number }>(sql`SELECT count(*) AS n ${DISPATCH_FROM} WHERE ${when}`);
   return {
     total: Number(t?.n ?? 0),
     rows: rows.map((r) => ({
@@ -149,16 +164,25 @@ export interface AdminCustomerRow { customerId: string; customer: string; city: 
 interface CustomerRaw { id: string; business_name: string | null; name: string; city: string | null; n: number; kg: number }
 
 /** Customers with order count and tonnes ordered (REJECTED and CANCELLED orders excluded from tonnes, included in count). */
-export async function listAdminCustomers(db: Db, actor: Pick<User, "role">, p: Page): Promise<{ rows: AdminCustomerRow[]; total: number }> {
+export async function listAdminCustomers(db: Db, actor: Pick<User, "role">, p: Page, f: AnalyticsFilters = NO_FILTERS): Promise<{ rows: AdminCustomerRow[]; total: number }> {
   assertAdmin(actor);
   const w = window(p);
+  // Dates filter orders by created_at (IST day); with a date range only customers with orders in it are listed.
+  const ordDates = epochInRange(sql`o.created_at`, f);
+  const hasRange = ordDates.length > 0;
+  const custWhen = allOf([
+    sql`u.role = 'CUSTOMER'`,
+    ...searchAny(f.q, [sql`u.business_name`, sql`u.name`, sql`u.city`, sql`u.email`]),
+    ...(hasRange ? [sql`EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = u.id AND ${allOf(ordDates)})`] : []),
+  ]);
+  const ordWhen = allOf(ordDates);
   const rows = await db.all<CustomerRaw>(sql`SELECT u.id, u.business_name, u.name, u.city,
-      (SELECT count(*) FROM orders o WHERE o.customer_id = u.id) AS n,
+      (SELECT count(*) FROM orders o WHERE o.customer_id = u.id AND ${ordWhen}) AS n,
       COALESCE((SELECT SUM(CAST(o.qty_kg AS INTEGER)) FROM orders o
-        WHERE o.customer_id = u.id AND o.status NOT IN ('REJECTED','CANCELLED')), 0) AS kg
-    FROM users u WHERE u.role = 'CUSTOMER'
+        WHERE o.customer_id = u.id AND o.status NOT IN ('REJECTED','CANCELLED') AND ${ordWhen}), 0) AS kg
+    FROM users u WHERE ${custWhen}
     ORDER BY u.created_at DESC, u.id DESC LIMIT ${w.limit} OFFSET ${w.offset}`);
-  const [t] = await db.all<{ n: number }>(sql`SELECT count(*) AS n FROM users WHERE role = 'CUSTOMER'`);
+  const [t] = await db.all<{ n: number }>(sql`SELECT count(*) AS n FROM users u WHERE ${custWhen}`);
   return {
     total: Number(t?.n ?? 0),
     rows: rows.map((r) => ({
