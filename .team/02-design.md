@@ -1,4 +1,4 @@
-## HANDOFF (v2)
+## HANDOFF (v2 + V22)
 Screens: auth /login /register /pending (S1) | Admin /admin/{approvals,distributors,customers,transport} (S1,S2,S8)
   Provider /provider/{distributors,orders,invoices,payments} (S2,S5,S7) | Distributor /distributor/{providers,customers,orders,pos,invoices-in,invoices-out,payments} (S2,S3,S4,S5,S6,S7)
   Customer /customer/{distributors,orders,orders/new,invoices,payments} (S2,S3,S6). Detail pages: /orders/[id], /pos/[id], /invoices/[id] per role.
@@ -6,7 +6,7 @@ Component library: shadcn/ui (Tailwind + Radix), lucide-react. Tokens: unchanged
 Layout: customer = top bar + bottom tab bar (Orders | Distributors | Invoices | Pay), 360px min. Staff = sidebar >=1024px, top bar + Sheet below; sidebar items = the role tabs.
 Formats: qty "30 t" (up to 3 decimals, trailing zeros trimmed, "12.5 t"); input is tonnes, stored kg. Money "Rs 1,23,456.00" (en-IN, paise/100). Rate "Rs 6,200.00 / t".
 Risky UX: (1) order form live "Unallocated -> distributor's choice" remainder, never blocks submit; (2) draft-PO review blocks Place until every item has a provider and per-order sums match; (3) "Paid" only after webhook ("Confirming payment..." poll); (4) 7 distributor tabs: group in sidebar as Network / Sales / Purchasing / Money; mobile Sheet.
-Removed: transport planner. Admin "transport" = read-only dispatch records.
+V22 (see "## V22 Transport" at end): TRANSPORTER role (/transporter/requests), distributor Request transport on ACCEPTED PO + /distributor/deliveries, provider transport panel + strict dispatch gate, customer read-only card, admin Transporters tab. Replaces the old "removed transport planner"; no new components, no new tokens. Risky: strict gate must explain who to wait for; vehicle/driver prefill locked in dispatch dialog.
 Next: fullstack-developer
 
 ## Tokens (unchanged)
@@ -98,7 +98,7 @@ Tabs: Drafts | Placed | All. Table PO# | Provider | Qty | Orders (chips) | Statu
 ## Screen: Provider Purchase Orders / dispatch  (/provider/orders, /provider/orders/[id])  [S5]
 Table PO# | Distributor | Qty | Delivery city | Status | Actions. Placed: [Accept][Reject] (Reject Dialog, reason required). Accepted: [Mark dispatched]. Dispatched: [Add invoice].
 Detail shows items with each customer's delivery address and needed-by.
-Dispatch Dialog: Dispatch date (default today), Vehicle no (optional), Driver phone (optional, 10 digits). Helper "Whole PO is dispatched at once". Confirm.
+Dispatch Dialog: Dispatch date (default today), Vehicle no (optional), Driver phone (optional, 10 digits). Helper "Whole PO is dispatched at once". Confirm. (V22 supersedes: see Provider PO transport panel.)
 Provider Invoices (/provider/invoices): Table Inv# | PO | Distributor | Qty | Rate | Amount | Paid | Status; [New invoice] picks Dispatched POs. Form: Invoice no (unique), Date (>= PO date), Qty t (max = remaining, hint "Remaining 12 t of 30 t"), Rate Rs/t, Amount live. Errors: duplicate no, qty over remaining.
 Provider Payments (/provider/payments): KPI Outstanding; table per distributor: Invoiced | Received | Outstanding; expand = receipts (date, amount, mode, reference). Read-only; note "Recorded by the distributor".
 
@@ -117,3 +117,80 @@ Empty "No activity yet". Mobile: tabs scroll, cards.
 
 ## Accessibility (unchanged + v2)
 Contrast >= 4.5:1 both themes; hit targets >= 44px; 16px inputs; 2px --focus ring; every input labelled, errors via aria-describedby + role=alert; dialogs trap/return focus; tables use th scope; DocChain is a nav landmark with aria-label "Document chain" and current item aria-current; draft selection checkboxes have row-specific labels; disabled Place/Combine expose reason text (not tooltip-only); reduced-motion respected; theme follows prefers-color-scheme.
+
+## V22 Transport
+Reuses shadcn Card, Table(->cards <768), Badge, Dialog, AlertDialog, Select, Input, Textarea, Alert, Tabs, Toaster; tokens unchanged. New shared bits are compositions only: TransportStatus Badge, TransportCard (read-only label:value block).
+Transport badges: Requested=info | Accepted=primary-outline | Rejected=danger | Cancelled=muted(strike) | Needs transport=warning | At risk=danger-outline (clock icon) | Waiting=muted. Order of precedence on a PO row: Dispatched PO shows PO badge only.
+Vehicle shown normalised upper-case "TS09AB1234". Phone "98765 43210". Dates "10 Nov 2026".
+
+### Register + pending  (/register, /pending)  [T1]
+Register role RadioGroup gains 4th option "Transporter"; extra fields (same slot as business): Company name*, City*, Phone*. Helper "Needs admin approval. Shown to distributors only after approval."
+/pending (transporter): same clock card, copy "Waiting for admin approval. You will see requests here once approved." No nav, only [Log out]. Rejected: "Your account was not approved". Approved -> redirect /transporter/requests.
+
+### Transporter dashboard  (/transporter/requests)  [T1,T3]
+Shell: header [logo | "Transporter" badge | user menu]; single page, no tabs/sidebar. No rates/invoices/payments anywhere.
++-- 360px ---------------------------------+
+| Transport requests        [New (2)]       |
+| Filter chips: [Requested][Accepted][Past] |  default Requested
+| +--------------------------------------+ |
+| | PO #31  10 t        [Requested]      | |
+| | Anjani Cement, Hyd -> Pune 411001    | |
+| | Deliver: 12 Lake Rd | Needed 10 Nov  | |
+| | Distributor: Giri Traders            | |
+| | Vehicle TS09AB1234 | Ravi 98765 43210| |
+| | Pickup 8 Nov | Note: gate 2          | |
+| | [Reject]               [Accept]      | |
+| +--------------------------------------+ |
++------------------------------------------+
+>=768px: Table PO | Qty | Pickup (provider city) | Deliver to | Needed by | Distributor | Vehicle/Driver | Status | Actions.
+Accept: one tap, AlertDialog "Accept PO #31? Provider will dispatch using these details." Reject: Dialog, Textarea "Reason" (required, 3-200 chars, error "Give a reason so the distributor can re-plan"), [Reject request] danger.
+Past chip: Accepted/Rejected/Cancelled/Dispatched (Accepted shows "Dispatched 9 Nov" when so). Cancelled request disappears from Requested and shows greyed in Past; acting on stale card -> toast "Request changed. Refreshed." (409) and list reload.
+States: empty "No requests yet. Distributors will send them here."; loading 3 Skeleton cards; error Alert + Retry; 403 -> own dashboard + toast.
+
+### Admin transporter approval  (/admin/approvals, /admin/transport)  [T1]
+Approvals tab: role column gains "Transporter"; row shows company, city, phone; same Approve/Reject/Revoke. Revoked transporter disappears from the directory; open requests stay visible to provider/distributor.
+Transport tab: unchanged read-only dispatch table plus column "Transporter" (blank for pre-V22 rows); a segmented switch [Dispatches | Transporters] where Transporters = list Company | City | Phone | Open requests | status Badge.
+
+### Distributor: Request transport  (/distributor/pos/[id])  [T2]
+PO detail gets a "Transport" Card below items, state-driven:
+- ACCEPTED, no open request: Alert info "Provider accepted. Arrange transport so they can dispatch." [Request transport] primary.
+- REQUESTED: summary TransportCard + Badge Requested; [Edit details] [Cancel request] (AlertDialog "Cancel? The transporter will no longer see it.").
+- ACCEPTED request: TransportCard + Badge Accepted, "Provider can now dispatch"; no edit/cancel (note "Locked once accepted").
+- REJECTED: Alert danger "Meena Transports rejected: <reason>" + [Request another transporter] (form prefilled with previous vehicle/driver, transporter cleared).
+- CANCELLED: muted line "Cancelled on 8 Nov" + [Request transport].
+- Dispatched: read-only TransportCard "Dispatched 9 Nov". PO not ACCEPTED (placed/rejected): card hidden.
+Form (Dialog on desktop, full-screen Sheet <768; same form for create/edit):
++------------------------------------+
+| Transporter [ Meena Transports, Pune v ] |  Select + search, approved only
+| Vehicle no  [ TS09AB1234 ]         |  normalised upper-case, strip spaces
+| Driver name [__________]           |
+| Driver phone [__________]  10 digits
+| Pickup date [ date ] min today     |
+|  warn (non-blocking): "After needed-by 10 Nov"
+| Note (optional) [__________] 200   |
+| [Cancel]            [Send request] |
++------------------------------------+
+Edit: transporter Select disabled. Errors inline: "Pick a transporter", "Enter a valid vehicle no", "Phone must be 10 digits", "Pick today or a later date". 409 (open request exists / PO not accepted) -> Alert in dialog + refresh. Empty directory: "No approved transporters yet" and [Send] disabled.
+
+### Distributor Deliveries  (/distributor/deliveries)  [T5]
+Placed in sidebar group Purchasing (after "POs to Providers"); mobile Sheet item "Deliveries".
+Table PO# | Provider | Qty | Needed by | Transport (Badge) | Transporter | Vehicle | Status | [Open]. Filter chips: All | Needs transport | At risk | In transit(Dispatched).
+Flags: "Needs transport" (warning) = PO ACCEPTED, no open request, row action [Request transport] opens form; "At risk" (danger-outline) = needed-by < today and not dispatched, shown with any transport badge; sort At risk, Needs transport first. Mobile: cards, flag Badges at card top.
+Empty: "No accepted POs yet" + link to POs.
+
+### Provider PO transport panel + dispatch  (/provider/orders/[id])  [T4]
+Card "Transport" above the dispatch action, by request state:
+- ACCEPTED request: TransportCard (Transporter, Vehicle, Driver name/phone, Pickup date), Badge Accepted. [Mark dispatched] enabled.
+- No request: Alert warning "Transport not arranged. Waiting for the distributor to request a transporter." [Mark dispatched] disabled, reason text under button (not tooltip only).
+- REQUESTED: Alert "Waiting for Meena Transports to accept." disabled. REJECTED/CANCELLED: "Waiting for the distributor to arrange new transport." disabled.
+List row action [Mark dispatched] is disabled with same short text "Transport not arranged"; shows "Transport ready" Badge when ACCEPTED.
+Dispatch Dialog (replaces old): Dispatch date* (default today, min PO placed date, max today); Vehicle, Driver name, Driver phone = read-only prefilled fields with lock icon and helper "From accepted transport request"; no free text. Helper "Whole PO is dispatched at once". [Confirm dispatch]. 409 "transport not arranged" -> Alert in dialog, panel refreshes. Pre-V22 dispatched POs render legacy vehicle/phone text without transporter.
+
+### Customer transport card  (/customer/orders/[id])  [T5]
+Read-only TransportCard under timeline once PO(s) exist:
+- Request ACCEPTED or dispatched: "Transport: Meena Transports | Vehicle TS09AB1234 | Driver Ravi 98765 43210 | Pickup 8 Nov | [Arranged]" (Dispatched order: badge Dispatched). Driver phone is tel: link.
+- None or REQUESTED: muted "Transport being arranged". REJECTED/CANCELLED details never shown (same muted text).
+Multi-PO order: one card line group per PO, labelled by provider ("Anjani 10 t"). No actions, no edit.
+
+### A11y and responsive (V22)
+Mobile first: cards <768, Dialog -> Sheet; all buttons >=44px; Accept/Reject side by side 50% each. Every flag/badge has icon + text. Dialog fields labelled, errors aria-describedby + role=alert; disabled dispatch exposes reason text via aria-describedby; vehicle/phone fields use inputmode (text/tel) and autocomplete off; focus returns to the triggering card after Accept/Reject; status changes announced via toast role=status.

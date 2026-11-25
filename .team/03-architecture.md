@@ -391,3 +391,112 @@ These are unchanged from rev 1 section 10: Vercel Hobby bom1 + Turso ap-south-1,
 - **Revisit when**: there are more than about 10k users, live payments, partial dispatch (dispatches is already a separate table), or credit terms.
 
 **Status**: Proposed (rev 2) · **Date**: 2026-11-10
+
+---
+
+## V22 Transport (rev 3 delta)
+
+### HANDOFF (read this first, <=12 lines)
+1. Migration is `0007_v22_transport` (0006_guard_assert exists; 0005_v2 + 0006 frozen). `drizzle-kit generate --name=v22_transport`.
+2. 0007: (a) rebuild `users` so role CHECK allows 'TRANSPORTER' (drizzle __new_users copy/drop/rename); (b) CREATE `transport_requests` with partial UNIQUE(po_id) WHERE status IN ('REQUESTED','ACCEPTED'); (c) ALTER dispatches ADD transport_request_id (nullable FK).
+3. Users rebuild safe only because libSQL `client.migrate()` wraps batch in PRAGMA foreign_keys=off (sqlite3.js:292, hrana.js:216). `runMigrations` must then run `PRAGMA foreign_key_check` and fail on any rows.
+4. States REQUESTED -> ACCEPTED | REJECTED | CANCELLED. ACCEPTED final; "dispatched" derived from PO status. Every write = C conditional UPDATE / INSERT...SELECT with version in WHERE; 0 rows -> diagnose(): 404 / 409 INVALID_STATE / 409 STALE.
+5. Create: distributor owns PO, PO ACCEPTED, transporter ACTIVE TRANSPORTER; 2nd open -> 409 TRANSPORT_OPEN. Distributor edit/cancel only REQUESTED. Transporter accept/reject only REQUESTED; reject reason required (422).
+6. Dispatch gate: POST /api/pos/:id/dispatch {dispatchDate, transportRequestId}; batch pre-asserts ACCEPTED request for PO; vehicle + driver phone copied from request in SQL; else 409 TRANSPORT_NOT_ARRANGED. Free-text vehicleNo/driverPhone removed. Old dispatch rows untouched.
+7. No create/cancel/dispatch race (PO leaves ACCEPTED only via dispatch, which needs non-editable ACCEPTED request). Only edit-vs-accept race; version covers it.
+8. Wrong role 403 FORBIDDEN; unapproved 403 PENDING; foreign row 404 (ADR s9) — QA asserts 404 where PRD says 403.
+9. Transporter projections = explicit column lists: no rate/total/amount/invoice/payment/email/customer. INVOICED/PAID shown as "Dispatched".
+10. Fix first: pos.ts scope()/toView() and orders.ts scope() fail-open for unknown roles -> explicit assertRole + exhaustive switch.
+11. Files: services/transport-requests.ts, transport-views.ts, deliveries.ts, domain/transport-status.ts, lib/validation/transport.ts + fields.ts; change po-provider, directory, admin-users, analytics, pos, orders.
+12. Test seams: `now` param, fixture arrangeTransport() (existing dispatch tests + S5 e2e need it), key-denylist isolation test, migrate-from-0006 test, Promise.all races.
+
+### V22.1 Migration 0007_v22_transport
+1. users rebuild (drizzle-generated): __new_users with CHECK(role IN ('CUSTOMER','DISTRIBUTOR','PROVIDER','ADMIN','TRANSPORTER')), INSERT...SELECT all columns, DROP users, rename, recreate users_email_unique. Hand-check column order, NOT NULLs, email unique vs 0000. FKs off -> no cascade; sessions survive; other FKs resolve by name after rename.
+2. CREATE TABLE transport_requests:
+
+| Column | Type | Notes |
+|---|---|---|
+| id | text PK | uuidv7 |
+| po_id | text NOT NULL FK purchase_orders | |
+| distributor_id | text NOT NULL FK users | denormalised ownership predicate |
+| transporter_id | text NOT NULL FK users | |
+| status | text NOT NULL DEFAULT 'REQUESTED' | CHECK IN ('REQUESTED','ACCEPTED','REJECTED','CANCELLED') |
+| version | integer NOT NULL DEFAULT 0 | bumped every write |
+| vehicle_no | text NOT NULL | same CHECK as dispatches (4-12, [A-Z0-9]) |
+| driver_name | text NOT NULL | length(trim) 2..80 |
+| driver_phone | text NOT NULL | same CHECK as dispatches (^[6-9]\d{9}$) |
+| pickup_date | text NOT NULL | YYYY-MM-DD IST, GLOB check |
+| note | text NULL | <= 300 |
+| reject_reason | text NULL | status<>'REJECTED' OR length(trim)>0; <= 300 |
+| decided_at, cancelled_at | integer NULL | epoch ms |
+| created_at, updated_at | integer NOT NULL | |
+
+Extra CHECK transporter_id <> distributor_id.
+Indexes: transport_requests_po_open_uq UNIQUE(po_id) WHERE status IN ('REQUESTED','ACCEPTED') (Drizzle .where(), like payments_invoice_created_uq; also guarantees single-row LEFT JOIN); transport_requests_po_idx (po_id, created_at); transport_requests_transporter_idx (transporter_id, status, created_at); transport_requests_distributor_idx (distributor_id, status, created_at).
+3. ALTER TABLE dispatches ADD transport_request_id text REFERENCES transport_requests(id), nullable. If drizzle-kit emits rebuild, hand-check.
+Notes: no PO/order status changes; no vehicles/trips; driver_name read via request. scripts/migrate.ts adds post-migrate fk check. Tests build DBs through real migrator. Turso migrated only after user yes + dump.
+
+### V22.2 State machine and enforcement
+REQUESTED -> ACCEPTED (transporter), -> REJECTED (transporter + reason), -> CANCELLED (distributor). REJECTED/CANCELLED terminal, free PO for new request. "Dispatched" = PO status IN (DISPATCHED, INVOICED, PAID) or dispatch row with this transport_request_id.
+
+| Action | Actor | Enforcement (single statement) | 0 rows diagnose |
+|---|---|---|---|
+| create | DISTRIBUTOR | INSERT...SELECT FROM purchase_orders p JOIN users t (TRANSPORTER, ACTIVE) WHERE p.id, p.distributor_id=actor, p.status='ACCEPTED', activeUser(actor), NOT EXISTS dispatch; service checks pickup_date >= todayIst(now) | unique -> 409 TRANSPORT_OPEN; not own 404; dispatched+ 409 ALREADY_DISPATCHED; other 409 INVALID_STATE; transporter 422 TRANSPORTER_UNAVAILABLE |
+| edit {version, fields} | DISTRIBUTOR | UPDATE ... WHERE distributor_id=actor AND status='REQUESTED' AND version=:v | 404 / 409 INVALID_STATE / STALE |
+| cancel {version} | DISTRIBUTOR | status='CANCELLED', cancelled_at, same guard | same |
+| accept {version} | TRANSPORTER | status='ACCEPTED', decided_at WHERE transporter_id=actor, REQUESTED, version, activeUser, EXISTS PO ACCEPTED | 404 / 409 INVALID_STATE / STALE |
+| reject {version, reason} | TRANSPORTER | as accept + reject_reason; Zod reason 1..300 no control chars (reuse rejectOrderSchema) | 422 VALIDATION |
+
+Rules: transporter accepts exactly what they saw (edit between -> accept 409 STALE). Creating request does not bump purchase_orders.version. Changing transporter = cancel + new request. Revoked transporter: REQUESTED stays cancellable; ACCEPTED stays dispatchable. Known dead end: ACCEPTED cannot be undone before dispatch (later: withdraw).
+
+### V22.3 Dispatch gate (po-provider.ts dispatchPo)
+dispatchSchema = {dispatchDate, transportRequestId: uuid}.strict() (old vehicle fields -> 422). Pre-read open request; missing/not ACCEPTED/id mismatch -> 409 TRANSPORT_NOT_ARRANGED. Batch pre-assert EXISTS ACCEPTED request for PO; INSERT dispatches SELECT tr.vehicle_no, tr.driver_phone, tr.id FROM transport_requests; post-assert transport_request_id = :tr; rollups unchanged. Date rule unchanged (placed <= date <= today); UI prefills min(pickup_date, today).
+
+### V22.4 API routes
+All mutations: Origin check, body <= 16KB (readJson), enforceActionLimit(db, "transport", actor.id). Lists page<=1000, limit<=50. UUID ids.
+
+| Method | Path | Role | Result |
+|---|---|---|---|
+| GET | /api/directory/transporters ?q&page&limit | DISTRIBUTOR | ACTIVE transporters: id, businessName, city |
+| POST | /api/pos/:id/transport-requests | DISTRIBUTOR | 201 {id, version}; 404, 409 INVALID_STATE/ALREADY_DISPATCHED/TRANSPORT_OPEN, 422 VALIDATION/TRANSPORTER_UNAVAILABLE/INVALID_DATE |
+| PATCH | /api/transport-requests/:id | DISTRIBUTOR | 200; 404, 409 INVALID_STATE/STALE, 422 |
+| POST | /api/transport-requests/:id/cancel | DISTRIBUTOR | 200; 404, 409 |
+| POST | /api/transport-requests/:id/accept | TRANSPORTER | 200; 404, 409 |
+| POST | /api/transport-requests/:id/reject | TRANSPORTER | 200; 404, 409, 422 |
+| GET | /api/transport-requests ?status&page&limit | TRANSPORTER / DISTRIBUTOR | role projection |
+| GET | /api/transport-requests/:id | TRANSPORTER / DISTRIBUTOR | 404 out of scope |
+| POST | /api/pos/:id/dispatch {dispatchDate, transportRequestId} | PROVIDER | 201; 404, 409 INVALID_STATE/TRANSPORT_NOT_ARRANGED/CONFLICT, 422 INVALID_DATE |
+| GET | /api/deliveries ?flag=needs_transport\|at_risk | DISTRIBUTOR | T5 |
+| GET | /api/pos/:id, /api/orders/:id | existing | + transport block |
+| GET | /api/admin/dispatches | ADMIN | + transporterName, driverName (searchable) |
+| GET/POST | /api/admin/users | ADMIN | APPROVABLE_ROLES += TRANSPORTER |
+
+Registration: validation/auth.ts role enum += TRANSPORTER, treated like PROVIDER (PENDING, businessName, phone, city). ROLE_VALUES, lib/roles.ts (DASHBOARD_PATH "/transporter"), nav.ts.
+
+### V22.5 Isolation and visibility
+- TRANSPORTER: only tr.transporter_id = actor (all statuses). Request fields; PO no, qty_kg, derived state; provider business_name + city; distributor business_name; items qty_kg, address, city, pincode, needed_by. Never rates/totals/invoices/payments/balances/emails/user phones/customer names. Reads only in transport-views.ts (never listPos/getPo/orders.ts).
+- DISTRIBUTOR: own requests all statuses incl. reject_reason.
+- PROVIDER: own non-DRAFT POs: open request status; details only when ACCEPTED, else "Waiting for distributor/transporter".
+- CUSTOMER: item-scoped; ACCEPTED request only (transporter, vehicle, driver name + phone, pickup date); else "Transport being arranged"; REJECTED/CANCELLED filtered in SQL. Reverses rev-2 "customer never sees driver phone" for V22 blocks only.
+- ADMIN: read-all via dispatch join; approval only.
+- Fail-open fix: assertRole at exported entries of pos.ts / orders.ts; exhaustive scope switch throws on unknown role.
+
+### V22.6 Files (each < 500 lines)
+drizzle/0007_v22_transport.sql + snapshot + journal; schema.ts (role CHECK, transportRequests, dispatches.transportRequestId); db/guard.ts (move isUniqueViolation); lib/constants.ts, roles.ts, nav.ts, validation/auth.ts; validation/fields.ts (extract vehicleNo, driverPhone, isRealDate, blankToNull); validation/transport.ts; domain/transport-status.ts (canAct, transporterPoState, customerTransportView, deliveryFlags); services/transport-requests.ts; services/transport-views.ts (listForTransporter, getForTransporter, listForDistributor, transportForPos); services/deliveries.ts. Changed: po-provider, directory (listTransporterDirectory), admin-users, analytics, pos, orders, scripts/migrate.ts, scripts/seed.ts ("Meena Transports" + one ACCEPTED request). Routes: api/directory/transporters, api/pos/[id]/transport-requests, api/transport-requests/[id]/{route,cancel,accept,reject}, api/deliveries. Pages: app/transporter/ (dashboard, requests/[id]), distributor/deliveries; reuse components/transport-details.tsx.
+
+### V22.7 Test seams
+- Unit: transport-status table + flags (at-risk today vs yesterday; INVOICED/PAID -> "Dispatched"); Zod vehicle normalise, phone, reason required, empty edit 422.
+- Integration (real migrator): migrate 0006 + v2 seed -> 0007, counts kept, sessions intact, fk_check empty, TRANSPORTER insert ok, 2nd open request violates index. Happy path T2-T4 (dispatch row transport_request_id, copied vehicle/phone, rollup). Gate: none/REQUESTED/REJECTED/CANCELLED/wrong id -> 409 TRANSPORT_NOT_ARRANGED; legacy unaffected. Races: two creates; accept vs cancel; edit vs accept; double accept. Isolation: transporter B on A's request 404; transporter on pos/orders/invoices/balances 403; pending 403 PENDING + not in directory; customer B no block on A's combined PO. Key-denylist /rate|total|amount|paise|invoice|payment|email|balance/i on transporter + customer transport payloads.
+- Fixture tests/fixtures/transport.ts arrangeTransport(db, {poId, transporterId?, accept=true}); all existing dispatch tests + S5 e2e must use it.
+- E2E (1 worker, chromium): T1 register -> pending -> admin approve -> dashboard; T2-T4 with "Waiting" state before accept; 360px customer transport block.
+
+### V22.8 Decisions
+| Decision | Why | Cost | Rejected |
+|---|---|---|---|
+| Rebuild users for role CHECK | keeps DB invariant | hand check + fk_check + Turso dump | drop CHECK; separate transporters table |
+| Partial unique one-open-per-PO | race-proof, single-row join | needs history index | NOT EXISTS batch |
+| Dispatched derived | no new status, PO single source | views join PO | DISPATCHED request status |
+| Dispatch copies from DB | client can't forge vehicle | old clients 422 | compare client values |
+| 404 foreign rows | ADR s9, no existence leak | differs from PRD 403 wording | 403 |
+
+**Status**: Proposed (rev 3 delta) · **Date**: 2026-11-22
